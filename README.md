@@ -4,3 +4,7 @@ OSAIKU is an experimental operating system. It is not a Linux distribution, a Wi
 The system already boots through UEFI on QEMU and physical hardware. It currently provides a custom kernel, process isolation, scheduling, typed system calls and IPC, keyboard and mouse support, a graphical desktop, movable multi-window composition, application lifecycle management, a Document application, File Manager, System Manager, and an initial persistent storage and native filesystem implementation. Work is continuing on full-disk installation, scalable storage, multicore execution, hardware drivers, performance, and recovery.
 OSAIKU’s long-term goal is to provide a secure shared environment for humans and local AI agents. AI should understand the system through structured interfaces, explain its state, and assist with development without becoming the security authority. Kernel policies, explicit permissions, resource limits, and human approval remain responsible for privileged actions.
 Most importantly, OSAIKU is intended to evolve around its user’s needs. With AI-assisted development, an ordinary user should be able to describe, design, review, test, and deploy new operating-system features without first becoming an experienced kernel engineer. Rather than being a fixed product, OSAIKU aims to become a transparent and adaptable system that users can gradually shape for their own hardware, workflows, and priorities.
+
+## RELEASE PLAN
+
+First experimental release is planned in December 2026.
