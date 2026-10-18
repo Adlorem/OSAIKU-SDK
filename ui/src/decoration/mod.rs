@@ -15,9 +15,10 @@ mod surface;
 /// Built-in native-pixel material. Keeping the original bounded kernels and
 /// lookup tables preserves appearance and the retained move/repair fast paths.
 pub mod theme {
-    pub const SURFACE: u32 = 0x343d50;
-    pub const TITLE: u32 = 0x2d3548;
-    pub const BORDER: u32 = 0x606578;
-    pub const FOCUS: u32 = 0x7b7c91;
-    pub const GLOW: u32 = 0x7169a8;
+    use crate::appearance::DARK;
+    pub const SURFACE: u32 = DARK.surface;
+    pub const TITLE: u32 = DARK.title;
+    pub const BORDER: u32 = DARK.border;
+    pub const FOCUS: u32 = DARK.focus;
+    pub const GLOW: u32 = DARK.glow;
 }

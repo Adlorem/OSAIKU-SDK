@@ -8,7 +8,7 @@ use osaiku_ui::{
     *,
 };
 
-const CONTRACT: &str = "report 1 10\nsource local record 1\nfield term local text\naction choose select\naction filter filter\n";
+const CONTRACT: &str = "report 1 11\nsource local record 1\nfield term local text\naction choose select\naction filter filter\n";
 fn view() -> Document {
     compile(r#"<main id="report"><section id="scroll"><button id="item" action="choose">Item</button><ui-text-input id="filter" action="filter" bind:text="term">initial</ui-text-input></section></main>"#,
         "#scroll { overflow:auto; height:40px; } button { height:60px; }").unwrap()

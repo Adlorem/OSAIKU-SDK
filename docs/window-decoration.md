@@ -8,11 +8,14 @@ does not change with this extraction.
 `frame::HTML` and `frame::CSS` expose the built-in template. Compile them on the
 build host, replacing `$SURFACE`, `$TITLE`, `$TEXT`, `$ACCENT` with validated
 colors. Pass the immutable Document to `frame::scene`, together with native
-title/control metrics, literal title/icon text, measured title width and the
-centering preference. `frame::slots` and `resize_regions` provide the compact
+title/control metrics, the literal title, the name of the badge's icon (a host
+image set: give the scene the images with `Scene::with_images`; OSAIKU passes
+`shell_icons::ICONS` and names each application's shelf icon), measured title
+width and the centering preference. `frame::slots` and `resize_regions` provide the compact
 geometry used for hit routing; paint/semantics use the resulting Scene.
 The template draws the title bar in `$TITLE` and the content in `$SURFACE`: a square application
-badge (accent colour, rounded, centred in the bar and scaled with it), the title
+badge (accent colour, rounded, centred in the bar and scaled with it) showing
+the application's icon at the largest built size that fits, the title
 beside it and a borderless `×` close control. OSAIKU's metrics make the close
 target 8x5 logical units, one unit inside the bar's top and right edges.
 Coordinates never grant permission to move, close or resize another window.

@@ -6,7 +6,7 @@ use osaiku_ui::{
     *,
 };
 
-const CONTRACT: &str = "report 1 10\nsource summary record 1\nsource entries rows 2\nsource other rows 1\nfield title summary text\nfield hidden summary bool\nfield usage summary percent\nfield history summary series\nfield name entries text\nfield name other percent\naction refresh refresh\naction choose select\n";
+const CONTRACT: &str = "report 1 11\nsource summary record 1\nsource entries rows 2\nsource other rows 1\nfield title summary text\nfield hidden summary bool\nfield usage summary percent\nfield history summary series\nfield name entries text\nfield name other percent\naction refresh refresh\naction choose select\n";
 const MARKUP: &str = r#"<main id="root"><span id="title" bind:text="title"></span><section id="details" bind:hidden="hidden"><ui-value-bar id="meter" bind:value="usage"></ui-value-bar><ui-chart id="chart" bind:series="history"></ui-chart></section><button id="reload" action="refresh">Refresh</button><ui-virtual-list id="list" source="entries"><template><ui-list-item id="row" action="choose"><span id="name" bind:text="name"></span></ui-list-item></template></ui-virtual-list></main>"#;
 
 #[test]
@@ -94,29 +94,29 @@ fn malformed_wire_cannot_bypass_structural_admission() {
 fn manifests_refuse_ambiguous_names_unsupported_versions_and_unbounded_inputs() {
     assert_eq!(symbol("costarring"), symbol("liquid"));
     assert!(
-        parse_manifest("report 1 10\nsource costarring record 1\naction liquid refresh").is_err()
+        parse_manifest("report 1 11\nsource costarring record 1\naction liquid refresh").is_err()
     );
     for text in [
         "",
-        "report 2 10",
-        "report 1 9",
-        "report 1 10\nreport 1 10",
-        "report 1 10 extra",
-        "report 1 10\nsource a record 0",
-        "report 1 10\nsource a mutable 1",
-        "report 1 10\nsource a record 1\nsource a rows 1",
-        "report 1 10\nfield f missing text",
-        "report 1 10\nsource a record 1\nfield f a pointer",
-        "report 1 10\nsource a record 1\nfield f a text\nfield f a bool",
-        "report 1 10\nsource a record 1\nsource b record 1\nfield f a text\nfield f b text",
-        "report 1 10\naction a refresh\naction a close",
-        "report 1 10\naction a write-disk",
-        "report 1 10\nsource <script> record 1",
+        "report 2 11",
+        "report 1 10",
+        "report 1 11\nreport 1 11",
+        "report 1 11 extra",
+        "report 1 11\nsource a record 0",
+        "report 1 11\nsource a mutable 1",
+        "report 1 11\nsource a record 1\nsource a rows 1",
+        "report 1 11\nfield f missing text",
+        "report 1 11\nsource a record 1\nfield f a pointer",
+        "report 1 11\nsource a record 1\nfield f a text\nfield f a bool",
+        "report 1 11\nsource a record 1\nsource b record 1\nfield f a text\nfield f b text",
+        "report 1 11\naction a refresh\naction a close",
+        "report 1 11\naction a write-disk",
+        "report 1 11\nsource <script> record 1",
     ] {
         assert!(parse_manifest(text).is_err(), "accepted {text}");
     }
     assert!(parse_manifest(&" ".repeat(32769)).is_err());
-    let mut sources = String::from("report 1 10\n");
+    let mut sources = String::from("report 1 11\n");
     for i in 0..=report::MAX_SOURCES {
         sources.push_str(&format!("source s{i} record 1\n"));
     }
@@ -144,7 +144,7 @@ fn compiler_diagnostics_identify_contract_failures() {
     .unwrap_err();
     assert_eq!(err.source, "contract");
     assert!(err.message.contains("UnknownField"));
-    let err = parse_manifest("# comment\nreport 1 10\naction a exec extra").unwrap_err();
+    let err = parse_manifest("# comment\nreport 1 11\naction a exec extra").unwrap_err();
     assert_eq!((err.source, err.line), ("contract", 3));
 }
 
@@ -218,7 +218,7 @@ fn cli_refusal_keeps_the_existing_artifact_and_success_uses_native_wire() {
     assert!(described.status.success());
     let previous = std::fs::read(&reference).unwrap();
     assert!(String::from_utf8_lossy(&previous).contains("| `entries` | `name` | text |"));
-    std::fs::write(&schema, "report 99 10").unwrap();
+    std::fs::write(&schema, "report 99 11").unwrap();
     let refused = std::process::Command::new(env!("CARGO_BIN_EXE_osaiku-ui-compile"))
         .arg("--describe")
         .arg(&schema)

@@ -51,7 +51,7 @@ and wire versions require an exact match. Source versions describe schemas
 registered by the host, not automatically negotiated service versions.
 
 ```text
-report 1 10
+report 1 11
 source summary record 1
 source entries rows 1
 field title summary text

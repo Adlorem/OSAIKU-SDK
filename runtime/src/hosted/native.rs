@@ -160,9 +160,10 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                             )
                             .map_err(RasterError::Publish)
                             .and_then(|offer| {
-                                RASTER.publish_with(
+                                RASTER.publish_with_images(
                                     offer,
                                     &wire[..len],
+                                    state.app.images(),
                                     |req, bytes, receipt| unsafe {
                                         crate::surface::transition(req, bytes, receipt)
                                     },

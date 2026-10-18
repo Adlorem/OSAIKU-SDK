@@ -1,5 +1,6 @@
 //! Shared native-control palette. Compiled views retain token IDs, so selecting
 //! a theme changes pixels without recompiling CSS or changing application data.
+use crate::appearance;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u32)]
@@ -7,6 +8,8 @@ pub enum Theme {
     #[default]
     Dark = 0,
     Contrast = 1,
+    /// Warm paper with brown ink: `appearance::Base::Light`.
+    Light = 2,
 }
 
 impl Theme {
@@ -14,7 +17,15 @@ impl Theme {
         match id {
             0 => Some(Self::Dark),
             1 => Some(Self::Contrast),
+            2 => Some(Self::Light),
             _ => None,
+        }
+    }
+    /// The palette of a desktop base theme.
+    pub const fn for_base(base: appearance::Base) -> Self {
+        match base {
+            appearance::Base::Dark => Self::Dark,
+            appearance::Base::Light => Self::Light,
         }
     }
     /// Straight ARGB; text consumers discard alpha. Zero means a literal color.
@@ -25,6 +36,7 @@ impl Theme {
         let palette = match self {
             Self::Dark => &DARK,
             Self::Contrast => &CONTRAST,
+            Self::Light => &LIGHT,
         };
         palette[usize::from(token - 1)]
     }
@@ -37,9 +49,38 @@ pub const MUTED: u8 = 2;
 pub const TRACK: u8 = 6;
 pub const ACCENT: u8 = 8;
 pub const GRID: u8 = 14;
+const OPAQUE: u32 = 0xff00_0000;
 const DARK: [u32; TOKEN_COUNT as usize] = [
-    0xffe9edf6, 0xffaeb8cc, 0xff343d50, 0xff3a4357, 0x1cffffff, 0x1fffffff, 0xff4b4a80, 0xffa78bfa,
-    0xff7aa7ff, 0xffff9f9f, 0xffffd66c, 0xff32384a, 0xff3e4760, 0xff4b5266,
+    0xffe9edf6,
+    0xffaeb8cc,
+    OPAQUE | appearance::DARK.surface,
+    0xff3a4357,
+    0x1cffffff,
+    0x1fffffff,
+    OPAQUE | appearance::ACCENTS[0].selected[0],
+    OPAQUE | appearance::ACCENTS[0].token[0],
+    0xff7aa7ff,
+    0xffff9f9f,
+    0xffffd66c,
+    0xff32384a,
+    0xff3e4760,
+    0xff4b5266,
+];
+const LIGHT: [u32; TOKEN_COUNT as usize] = [
+    OPAQUE | appearance::LIGHT.text,
+    0xff7b6e64,
+    OPAQUE | appearance::LIGHT.surface,
+    0xfffffdfa,
+    0x24382818,
+    0x1f382818,
+    OPAQUE | appearance::ACCENTS[3].selected[1],
+    OPAQUE | appearance::ACCENTS[3].token[1],
+    0xff2f6db5,
+    0xffc23b2e,
+    0xffa86a00,
+    0xfffffdfa,
+    0xffffffff,
+    0xffe2d6ca,
 ];
 const CONTRAST: [u32; TOKEN_COUNT as usize] = [
     0xffffffff, 0xffcccccc, 0xff101010, 0xff000000, 0xffffffff, 0xff555555, 0xff274e91, 0xffffff00,

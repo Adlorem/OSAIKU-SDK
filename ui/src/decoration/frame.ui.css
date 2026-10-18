@@ -1,6 +1,6 @@
 main { background-color: #00000000; color: $TEXT; font-size: 16px; overflow: hidden; }
 button { height:auto; border-width:0px; border-radius:0px; text-align:left; vertical-align:top; color: $TEXT; font-size: 16px; overflow: hidden; padding: 4px; background-color: $ACCENT; }
-button:disabled { color: #8b91a0; background-color: $TITLE; }
+button:disabled { color: $MUTED; background-color: $TITLE; }
 #drag { background-color: $TITLE; }
 #content-slot { background-color: $SURFACE; }
 #title { padding: 0px; vertical-align: middle; overflow: hidden; }

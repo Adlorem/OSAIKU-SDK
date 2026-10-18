@@ -1,4 +1,4 @@
-# Experimental UI format (wire major 10)
+# Experimental UI format (wire major 11)
 
 Implemented compiler/runtime foundation; not a released native application
 runtime. `osaiku-ui` 0.1.0 has no OS-source or third-party dependency. Runtime
@@ -69,7 +69,8 @@ recipe against a trusted template/model while allowing focus and scroll state.
 
 Wire major 5 adds TextInput/TextBox. Wire major 7 adds box decoration,
 alignment and chart-area opacity (see below). Wire major 9 adds virtual lists.
-Wire major 10 adds `outline: none`.
+Wire major 10 adds `outline: none`. Wire major 11 adds `background-image`
+with the shared background presets.
 Rebuild packaged views and
 external SDK applications together with the runtime; earlier wire majors are
 rejected.
@@ -150,6 +151,7 @@ values/cycles. Aliases resolve within the view before computing styles. A `theme
 Implemented properties: `display: block|flex`, `flex-direction: row|column`,
 `flex-grow: 0|1`, `width: auto|Npx|N%`, `height: auto|Npx`, `padding`, `gap`,
 `font-size` (pixels), `color` (#RRGGBB), `background-color` (#RRGGBB or #RRGGBBAA),
+`background-image` (`none` or `theme(preset)`, below),
 `overflow: visible|hidden|auto`, and the box/alignment properties below.
 Dimensions: 0–4096; padding/gap: 0–256; font size: 12, 14, 16, 18, 20, 22, 24,
 28 or 32 px (see Text below). Dimensions include padding and border (SDK
@@ -237,6 +239,7 @@ tracking are **not implemented**.
 | `align-items` | `flex-start`/`start`, `center`, `flex-end`/`end`, `stretch` | Children of a flex row; `stretch` fills auto-height children |
 | `fill-opacity` | `0`–`1` (three decimals) or `N%` | Area under each `ui-chart` series, in the series color |
 | `outline` | `none`, `auto` | Focus indicator; `none` omits it (wire major 10) |
+| `background-image` | `none`, `theme(navy)`, `theme(mountains)`, `theme(dusk)`, `theme(origami)` | A shared background preset over the background color, in the box shape (wire major 11) |
 
 The radius is clamped to half the shorter side, so a large radius makes a pill
 or, on a square box, a circle (status dots, count badges). Borders are part of
@@ -250,6 +253,17 @@ centre or end-align its children (that needs intrinsic widths); the compiler
 names the declaration. Per-corner radii, percentage radii, border shorthands
 (`border`, `border-bottom`), border styles and other `align-items` values are
 refused with a diagnostic.
+
+A background image is one of `appearance::BACKGROUNDS`, the presets the desktop
+background uses: an opaque vertical gradient (solid when its stops match),
+painted after the background color as CSS paints an image over it, one row at
+a time in the box shape. A photograph preset (`Background::photo`) paints its
+approximating gradient here; the photograph itself (`appearance::photo`, a
+built-in JPEG) is decoded only by the kernel for the desktop, and a view that
+shows it uses pre-scaled host images. `paint::vertical_gradient` interpolates each channel
+with rounding; hosts painting a preset elsewhere use it too. Like a palette
+token, a decoration stores only the preset's number, which keeps a retained
+recipe within its 32 KiB; there are no literal gradients.
 
 A styled `ui-value-bar` background is its track; without one the built-in
 track remains. The chart area spans consecutive available samples down to the
@@ -321,7 +335,9 @@ earlier majors are refused rather than reinterpreted. Major 8 adds two u8
 token IDs after each style background (`color_token`, `background_token`) and
 one u8 after each decoration border color (`border_token`, a 12-byte record).
 Major 10 appends one u8 flag to each decoration (`outline_none`, a 13-byte
-record); values other than 0 and 1 are refused.
+record); values other than 0 and 1 are refused. Major 11 appends one u8
+background image (`background_image`, a 14-byte record): zero is none, `n` is
+`appearance::BACKGROUNDS[n - 1]`; larger values are refused.
 Zero selects the literal color; IDs 1 through 14 select the bounded SDK palette.
 Unknown IDs are rejected before layout/paint.
 No native struct layout, Rust enum ABI,
@@ -447,6 +463,12 @@ is the system contrast profile. Tokens are resolved once per painted node,
 not per pixel. There is no runtime CSS parser, global mutable stylesheet or
 second themed copy of the document. Layout, bindings and input identities are
 independent of palette selection.
+
+`appearance` holds the desktop presets as data: Dark and Light chrome colors,
+four accent sets (shell fill, `accent` and `selected` per base), four
+background gradients and the taskbar transparency steps. The window
+decoration constants, the OSAIKU shell recipes and the Dark palette's
+surface, accent and selected tokens read their values from it.
 
 The native host puts the selected palette in `GeometryOffer.theme` (surface ABI
 4, same record size, replacing the old reserved u32). `HostedRaster` uses it for

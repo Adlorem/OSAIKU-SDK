@@ -816,6 +816,26 @@ fn property(computed: &mut Computed, name: &str, value: &str) -> Option<usize> {
             };
             18
         }
+        // `none`, a shared background preset `theme(dusk)`, or the host's
+        // image set `image(0)`.
+        "background-image" => {
+            d.background_image = if value == "none" {
+                0
+            } else if let Some(index) = value.strip_prefix("image(") {
+                let index: u8 = index.strip_suffix(')')?.trim().parse().ok()?;
+                if index >= HOST_IMAGES {
+                    return None;
+                }
+                HOST_IMAGE + index
+            } else {
+                let name = value.strip_prefix("theme(")?.strip_suffix(')')?.trim();
+                let preset = appearance::BACKGROUNDS
+                    .iter()
+                    .position(|background| background.name == name)?;
+                preset as u8 + 1
+            };
+            19
+        }
         _ => return None,
     };
     (s.valid() && d.valid()).then_some(slot)
@@ -889,7 +909,7 @@ fn styles(view: &mut Document, meta: &[Meta], css: &str, base: &str) -> Result<(
                     style.style.overflow = 2;
                     style.style.grow = true;
                 }
-                let mut ranks = [0; 19];
+                let mut ranks = [0; 20];
                 let mut align_items_at = 0;
                 let mut display = "block";
                 for rule in &rules {

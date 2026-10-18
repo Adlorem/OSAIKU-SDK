@@ -11,7 +11,7 @@ use osaiku_ui::{
 #[test]
 fn materialized_rows_keep_source_scope_without_reusing_ordinal_selection() {
     let manifest = parse_manifest(
-        "report 1 10\nsource data rows 1\nfield name data text\naction choose select",
+        "report 1 11\nsource data rows 1\nfield name data text\naction choose select",
     )
     .unwrap();
     let mut template = compile(r#"<main id="root"><ui-virtual-list id="list" source="data" item-height="32"><template><ui-list-item id="row" action="choose"><span id="label" bind:text="name"></span></ui-list-item></template></ui-virtual-list></main>"#,

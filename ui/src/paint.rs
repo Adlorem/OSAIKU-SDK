@@ -70,6 +70,51 @@ fn fill_box(
     }
 }
 
+/// Straight ARGB of `row` (0-based) of a vertical gradient spanning `rows`,
+/// each channel interpolated with rounding. Every host that paints a gradient
+/// (application bands, the compositor's desktop background) uses this.
+pub fn vertical_gradient(top: u32, bottom: u32, row: u32, rows: u32) -> u32 {
+    let span = rows.saturating_sub(1).max(1);
+    let row = row.min(span);
+    (0..4).fold(0, |color, channel| {
+        let shift = channel * 8;
+        let (from, to) = ((top >> shift) & 0xff, (bottom >> shift) & 0xff);
+        let value = if to >= from {
+            from + ((to - from) * row + span / 2) / span
+        } else {
+            from - ((from - to) * row + span / 2) / span
+        };
+        color | (value << shift)
+    })
+}
+
+/// An opaque background preset, one `fill_box` per visible row, each clipped
+/// to that row, so rounded corners keep exactly the coverage of a solid box.
+fn fill_gradient(
+    painter: &mut (impl Painter + ?Sized),
+    rect: Rect,
+    radius: u8,
+    background: &appearance::Background,
+    clip: Rect,
+) {
+    let visible = rect.intersect(clip);
+    for y in visible.y..visible.y + visible.height as i32 {
+        let color = vertical_gradient(
+            background.top,
+            background.bottom,
+            (y - rect.y) as u32,
+            rect.height,
+        );
+        let line = Rect {
+            x: visible.x,
+            y,
+            width: visible.width,
+            height: 1,
+        };
+        fill_box(painter, rect, radius, color, 255, line);
+    }
+}
+
 /// Bound to a layout produced for this exact immutable recipe. Hosts must keep
 /// the pair together through admission, rasterization and presentation.
 pub struct Scene<'a, L = Layout> {
@@ -285,6 +330,27 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                     (s.background >> 24) as u8,
                     p.clip,
                 );
+            }
+            if let Some(index) = decoration.background_image.checked_sub(HOST_IMAGE) {
+                let picture = self
+                    .images
+                    .get(usize::from(index))
+                    .and_then(|set| set.fit(p.bounds.width, p.bounds.height));
+                if let Some(image) = picture {
+                    let (w, h) = (u32::from(image.width), u32::from(image.height));
+                    let at = Rect {
+                        x: p.bounds.x + ((p.bounds.width - w) / 2) as i32,
+                        y: p.bounds.y + ((p.bounds.height - h) / 2) as i32,
+                        width: w,
+                        height: h,
+                    };
+                    painter.image(at, image, p.clip);
+                }
+            } else if let Some(background) = usize::from(decoration.background_image)
+                .checked_sub(1)
+                .and_then(|preset| appearance::BACKGROUNDS.get(preset))
+            {
+                fill_gradient(painter, p.bounds, decoration.radius, background, p.clip);
             }
             if decoration.border_width != 0 {
                 let (color, alpha) = if decoration.border_current_color {
