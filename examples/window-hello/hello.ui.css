@@ -1,0 +1,6 @@
+main { padding: 16px; gap: 12px; background-color: #252b3b; color: #e8edf7; }
+h1 { font-size: 20px; height: 28px; }
+p { height: 24px; }
+button { height: 36px; background-color: #45465f; }
+button:focus { background-color: #566d94; }
+button:disabled { color: #828899; background-color: #303646; }

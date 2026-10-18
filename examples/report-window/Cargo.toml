@@ -1,0 +1,22 @@
+[package]
+name = "osaiku-report-window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+native = []
+
+[dependencies]
+osaiku-runtime = { path = "../../runtime" }
+osaiku-ui = { path = "../../ui", default-features = false }
+
+[build-dependencies]
+osaiku-ui = { path = "../../ui", features = ["compiler"] }
+
+[[bin]]
+name = "osaiku-report-window"
+path = "src/main.rs"
+required-features = ["native"]
+test = false
+bench = false

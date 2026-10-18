@@ -1,0 +1,15 @@
+[package]
+name = "osaiku-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bounded declarative native UI contracts and compiler for OSAIKU"
+
+[features]
+default = []
+compiler = []
+
+[[bin]]
+name = "osaiku-ui-compile"
+path = "src/bin/compile.rs"
+required-features = ["compiler"]

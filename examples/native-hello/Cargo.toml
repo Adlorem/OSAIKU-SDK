@@ -1,0 +1,18 @@
+[package]
+name = "osaiku-native-hello"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+native = []
+
+[dependencies]
+osaiku-runtime = { path = "../../runtime" }
+
+[[bin]]
+name = "osaiku-native-hello"
+path = "src/main.rs"
+required-features = ["native"]
+test = false
+bench = false

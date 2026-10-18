@@ -1,0 +1,2 @@
+main { padding: 12px; gap: 8px; height: 480px; }
+#report-region { flex-grow: 1; overflow: hidden; border-width: 1px; border-color: #788090; }

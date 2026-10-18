@@ -1,0 +1,8 @@
+[package]
+name = "osaiku-ui-hello"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+osaiku-ui = { path = "../../ui", features = ["compiler"] }

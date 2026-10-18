@@ -1,0 +1,29 @@
+main { color: theme(text); font-size: 16px; background-color: theme(surface); }
+ui-virtual-list { width:100%; flex-grow:1; overflow:auto; }
+button { height: 32px; font-size: 14px; color: theme(text); text-align: center; vertical-align: middle; border-radius: 8px; border-width: 1px; border-color: theme(line); }
+button:selected { background-color: theme(selected); }
+ui-text-input { height: 48px; padding: 8px; color: theme(text); background-color: theme(input); border-radius: 8px; border-width: 1px; border-color: theme(line); }
+ui-text-input:focus { background-color: theme(input-focus); }
+.tab { height: auto; font-size: 16px; color: theme(muted); border-radius: 0px; border-width: 0px; background-color: #00000000; }
+.tab:selected { color: theme(text); border-width: 0 0 2px 0; border-color: theme(accent); background-color: #00000000; }
+.card { padding: 16px; gap: 10px; background-color: theme(card); border-radius: 12px; border-width: 1px; border-color: theme(line); }
+.panel { padding: 16px; gap: 8px; background-color: theme(card); border-radius: 12px; border-width: 1px; border-color: theme(line); }
+h2 { font-size: 18px; }
+.caption { font-size: 14px; color: theme(muted); }
+.muted { color: theme(muted); }
+.danger { color: theme(danger); }
+.warning { color: theme(warning); }
+.secondary { color: theme(secondary); }
+ui-chart { color: theme(accent); fill-opacity: 0.3; }
+tr { height: 36px; padding: 8px; align-items: stretch; border-width: 0 0 1px 0; border-color: theme(line); }
+tr:selected { background-color: theme(selected); border-radius: 8px; }
+.virtual-row { height:36px; padding:8px; border-width:0 0 1px 0; border-color:theme(line); }
+.virtual-row:selected { background-color:theme(selected); border-radius:8px; }
+.table-head { font-size: 14px; color: theme(muted); }
+td { vertical-align: middle; }
+th { vertical-align: middle; }
+ui-value-bar { height: 8px; border-radius: 4px; background-color: theme(track); color: theme(accent); }
+:focus { color: theme(accent); }
+:disabled { color: theme(muted); }
+.toolbar { border-width: 0 0 1px 0; border-color: theme(line); }
+.list-row { border-width: 0 0 1px 0; border-color: theme(line); }
