@@ -7,7 +7,7 @@ fn outgoing(c: &mut Client, now: u64) -> Packet {
         let (p, payload) = Packet::decode(b).unwrap();
         assert!(payload.is_empty());
         sent = Some(p);
-        true
+        Ok(())
     });
     sent.unwrap()
 }
@@ -29,7 +29,7 @@ fn diagnostic_command_receives_bounded_text_and_requires_source_receipt() {
     assert_eq!(p.operation, op::DIAGNOSTICS);
     reply(&mut c, p, Status::Complete, &[], 0, 4);
     let p = outgoing(&mut c, 5);
-    assert_eq!(p.operation, op::NEXT);
+    assert_eq!(p.operation, op::OBSERVE);
     reply(
         &mut c,
         p,
@@ -39,6 +39,7 @@ fn diagnostic_command_receives_bounded_text_and_requires_source_receipt() {
         6,
     );
     let p = outgoing(&mut c, 7);
+    assert_eq!(p.operation, op::OBSERVE);
     reply(&mut c, p, Status::Complete, &[], 200, 8);
     let p = outgoing(&mut c, 9);
     assert_eq!(p.operation, op::EVIDENCE);
@@ -53,10 +54,13 @@ fn diagnostic_command_receives_bounded_text_and_requires_source_receipt() {
     reply(&mut c, p, Status::Complete, &evidence.encode(), 0, 10);
     assert_eq!(c.status, Status::Complete);
     assert_eq!(c.evidence, evidence);
+    assert!(c.evidence.references("[[source:12617]]", 199));
     assert!(c.output.as_str().contains("Proposal only"));
     c.tick(200, |_| panic!());
     assert_eq!(c.status, Status::Expired);
-    assert!(c.output.as_str().is_empty());
+    // Expiry revokes source authority, but keeps the inert diagnostic history.
+    assert!(c.output.as_str().contains("Proposal only"));
+    assert!(!c.evidence.references("[[source:12617]]", 200));
 }
 #[test]
 fn only_explicit_exact_user_questions_route_to_diagnostics() {
