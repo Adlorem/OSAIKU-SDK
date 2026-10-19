@@ -196,3 +196,45 @@ fn a_host_image_backs_a_container_centred_under_its_children() {
         );
     }
 }
+
+static INK: [u32; 4] = [0xffe0_e0e0; 4];
+static PAPER_INK: [u32; 9] = [0xff40_3020; 9];
+static THEMED: [ImageSet; 2] = [
+    ImageSet {
+        name: "glyph",
+        images: &[Image {
+            width: 2,
+            height: 2,
+            pixels: &INK,
+        }],
+    },
+    ImageSet {
+        name: "glyph.light",
+        images: &[Image {
+            width: 3,
+            height: 3,
+            pixels: &PAPER_INK,
+        }],
+    },
+];
+
+#[test]
+fn the_light_palette_prefers_a_light_variant_of_the_same_name() {
+    let paint = |src: &str, theme: osaiku_ui::theme::Theme| {
+        let mut calls = Retained::default();
+        Scene::from_document(&icon(src, 8), 40, 40)
+            .unwrap()
+            .with_theme(theme)
+            .with_images(&THEMED)
+            .paint(&mut calls);
+        calls.0.images
+    };
+    use osaiku_ui::theme::Theme;
+    assert_eq!(paint("glyph", Theme::Dark)[0].1, 2);
+    assert_eq!(paint("glyph", Theme::Contrast)[0].1, 2);
+    assert_eq!(paint("glyph", Theme::Light)[0].1, 3);
+    // Without a variant the light palette keeps the plain image; a variant is
+    // never found by a prefix of its name.
+    assert_eq!(paint("glyph.light", Theme::Dark)[0].1, 3);
+    assert!(paint("glyp", Theme::Light).is_empty());
+}

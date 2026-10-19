@@ -58,7 +58,7 @@ revoke access. RELEASE by either party cancels the shared capture. Kernel resour
 retirement drops pins outside pool/process-table locks. A failed OPEN leaves no
 capture behind. Legacy windows without a sealed SDK image are explicitly refused.
 
-Limits: 16 MiB cropped image, 64 KiB per pixel read, 128 semantic elements, 8 KiB
+Limits: 16 MiB cropped image, 64 KiB per pixel read, 256 semantic elements, 8 KiB
 labels and 120 shared chart samples. Eight captures may be live globally, with at
 most two per owner and two per recipient. The 64 MiB global retention budget counts
 each complete pinned source image, not merely its crop. Existing image accounting

@@ -224,6 +224,20 @@ impl<'a> Scene<'a, &'a Layout> {
     }
 }
 impl<'a, L: AsRef<Layout>> Scene<'a, L> {
+    /// Own an admitted layout allocation or borrow caller-owned storage.
+    pub fn from_storage(view: &'a Document, layout: L) -> Result<Self, Error> {
+        if layout.as_ref().len != view.len as usize || layout.as_ref().len > MAX_NODES {
+            return Err(Error::Limit);
+        }
+        Ok(Self {
+            view,
+            layout,
+            text_bindings: [(0, ""); 8],
+            text_binding_len: 0,
+            theme: theme::Theme::Dark,
+            images: &[],
+        })
+    }
     /// Select the host's palette for this immutable frame. Layout and semantic
     /// identities stay unchanged; no global mutable renderer state is used.
     pub fn with_theme(mut self, theme: theme::Theme) -> Self {
@@ -232,9 +246,22 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
     }
     /// The host's images, found by a `ui-icon src` name. An icon whose name is
     /// missing, or whose smallest size does not fit, keeps the square mark.
+    /// Under the light palette a set named `NAME.light`, when the host has
+    /// one, replaces `NAME`: a one-colour glyph keeps its contrast on paper.
     pub fn with_images(mut self, images: &'a [crate::image::ImageSet]) -> Self {
         self.images = images;
         self
+    }
+
+    fn image_named(&self, name: &str) -> Option<&'a crate::image::ImageSet> {
+        if name.is_empty() {
+            return None;
+        }
+        let light = self.theme == theme::Theme::Light;
+        self.images
+            .iter()
+            .find(|set| light && set.name.strip_suffix(".light") == Some(name))
+            .or_else(|| self.images.iter().find(|set| set.name == name))
     }
 
     /// Bind immutable host text without copying a Document-sized recipe. The
@@ -303,13 +330,55 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             }
         })
     }
+    /// The document first, then each open popup above it with its shadow.
+    /// Scrollbars belong to their layer, so a menu covers the tracks below.
     pub fn paint(&self, painter: &mut impl Painter) {
+        self.paint_layer(painter, None);
+        for i in 0..self.layout().len {
+            let p = &self.layout().nodes[i];
+            if self.view.nodes[i].kind != Kind::Popup
+                || p.hidden
+                || p.clip.width == 0
+                || p.clip.height == 0
+            {
+                continue;
+            }
+            self.popup_shadow(painter, i);
+            self.paint_layer(painter, Some(i));
+        }
+    }
+    /// A soft drop shadow under a popup, inside the viewport.
+    fn popup_shadow(&self, painter: &mut impl Painter, i: usize) {
+        let p = &self.layout().nodes[i];
+        let s = self.layout().style(self.view, i);
+        let radius = u32::from(self.view.decoration(s).radius);
+        let clip = self.layout().viewport;
+        if !painter.visible(Rect {
+            x: p.bounds.x - 8,
+            y: p.bounds.y - 8,
+            width: p.bounds.width + 16,
+            height: p.bounds.height + 16,
+        }) {
+            return;
+        }
+        for (grow, offset, alpha) in [(6u32, 4i32, 10u8), (4, 3, 14), (2, 2, 20), (1, 1, 26)] {
+            let shadow = Rect {
+                x: p.bounds.x - grow as i32,
+                y: p.bounds.y - grow as i32 + offset,
+                width: p.bounds.width + 2 * grow,
+                height: p.bounds.height + 2 * grow,
+            };
+            painter.fill_rounded(shadow, radius + grow, 0, alpha, clip);
+        }
+    }
+    fn paint_layer(&self, painter: &mut impl Painter, layer: Option<usize>) {
         for i in 0..self.layout().len {
             let n = &self.view.nodes[i];
             let p = &self.layout().nodes[i];
             if p.hidden
                 || p.clip.width == 0
                 || p.clip.height == 0
+                || Layout::popup_of(self.view, i) != layer
                 || !painter.visible(p.bounds.intersect(p.clip))
             {
                 continue;
@@ -409,11 +478,8 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 }
                 Kind::Separator => painter.fill(Rect { height: 1, ..r }, color, p.clip),
                 Kind::Icon => {
-                    let name = self.text_of(i);
                     let image = self
-                        .images
-                        .iter()
-                        .find(|set| !name.is_empty() && set.name == name)
+                        .image_named(self.text_of(i))
                         .and_then(|set| set.fit(r.width, r.height));
                     if let Some(image) = image {
                         // Centred in the content box, at its built size.
@@ -476,6 +542,9 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
         // allowed a child surface to hide the only pointer scroll control.
         // They take the `ui-value-bar` look: a rounded track and accent thumb.
         for i in 0..self.layout().len {
+            if Layout::popup_of(self.view, i) != layer {
+                continue;
+            }
             if let Some(bar) = self.scrollbar(i) {
                 let clip = self.layout().nodes[i].clip;
                 if !painter.visible(bar.track.intersect(clip)) {

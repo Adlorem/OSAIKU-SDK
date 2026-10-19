@@ -228,6 +228,10 @@ fn compile_view(markup: &str, css: &str, defaults: &str) -> Result<Document> {
             ..Node::EMPTY
         };
         n.role = catalog::component(tag).expect("validated component").role;
+        if kind == Kind::Popup {
+            // Anchored at the viewport origin until the host sets its point.
+            n.set_popup_anchor(0, 0);
+        }
         if n.parent != NONE && !view.nodes[n.parent as usize].kind.container() {
             return Err(p.error("leaf element cannot have children"));
         }
@@ -388,6 +392,16 @@ fn compile_view(markup: &str, css: &str, defaults: &str) -> Result<Document> {
     view.validate()
         .map_err(|e| p.error(format!("invalid component contract: {e:?}")))?;
     styles(&mut view, &meta, css, defaults)?;
+    // A popup's vertical scroll field holds its anchor; it never scrolls.
+    if let Some(i) = (0..view.len as usize).find(|i| {
+        let n = &view.nodes[*i];
+        n.kind == Kind::Popup && (n.style.overflow == 2 || n.narrow.overflow == 2)
+    }) {
+        return Err(p.error(format!(
+            "ui-popup-menu cannot scroll (overflow: auto on #{})",
+            meta[i].id
+        )));
+    }
     view.validate()
         .map_err(|e| p.error(format!("invalid styled view: {e:?}")))?;
     Ok(view)

@@ -15,6 +15,7 @@ pub enum PointerPhase {
     Move = 1,
     Release = 2,
     Cancel = 3,
+    Context = 4,
 }
 impl PointerPhase {
     pub fn decode(value: u64) -> Option<Self> {
@@ -23,6 +24,7 @@ impl PointerPhase {
             1 => Self::Move,
             2 => Self::Release,
             3 => Self::Cancel,
+            4 => Self::Context,
             _ => return None,
         })
     }
@@ -50,18 +52,22 @@ impl Pointer {
     pub fn event(
         &mut self,
         view: &Document,
-        scene: &crate::paint::Scene<'_>,
+        scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
         target: Identity,
         phase: PointerPhase,
         x: i32,
         y: i32,
     ) -> Option<Event> {
-        if phase == PointerPhase::Cancel {
+        if matches!(phase, PointerPhase::Cancel | PointerPhase::Context) {
             self.cancel();
             return None;
         }
         if phase == PointerPhase::Press {
             self.cancel();
+            // An open menu takes the press: nothing beneath it scrolls.
+            if menu_holds(view, scene, x, y) {
+                return pointer_event(view, scene, target, x, y);
+            }
             for i in (0..view.len as usize).rev() {
                 let Some(bar) = scene.scrollbar(i) else {
                     continue;
@@ -96,7 +102,7 @@ impl Pointer {
     fn scroll(
         &mut self,
         view: &Document,
-        scene: &crate::paint::Scene<'_>,
+        scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
         target: Identity,
         y: i32,
     ) -> Option<Event> {
@@ -149,20 +155,26 @@ pub enum Key {
     PageDown,
     Character(char),
     Backspace,
+    /// Escape: closes the open menu (activates its popup's action).
+    Cancel,
 }
 
 /// Navigation, hit testing and semantics share the presented layout. Scroll
 /// events carry its clamped absolute offset, including after a resize.
 pub fn key_event(
     view: &Document,
-    scene: &crate::paint::Scene<'_>,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
     target: Identity,
     key: Key,
 ) -> Option<Event> {
     let layout = scene.layout();
+    let modal = layout.modal_popup(view);
     let focused = view.nodes[..view.len as usize]
         .iter()
-        .position(|n| n.state & crate::state::FOCUSED != 0);
+        .position(|n| n.state & crate::state::FOCUSED != 0)
+        .filter(|i| {
+            modal.is_none_or(|m| *i != m && crate::layout::Layout::popup_of(view, *i) == Some(m))
+        });
     let mut event = Event {
         target,
         ..Event::EMPTY
@@ -185,6 +197,12 @@ pub fn key_event(
             event.element = view.nodes[focused?].id;
             event.kind = ERASE;
         }
+        Key::Cancel => {
+            let index = layout.modal_popup(view)?;
+            event.element = view.nodes[index].id;
+            event.kind = ACTIVATE;
+            event.action = view.nodes[index].action;
+        }
         Key::Activate | Key::Character(_) => {
             let index = focused?;
             let placed = &layout.nodes[index];
@@ -197,6 +215,9 @@ pub fn key_event(
             event.action = view.nodes[index].action;
         }
         Key::PageUp | Key::PageDown => {
+            if modal.is_some() {
+                return None;
+            }
             let scrollable = |i: &usize| {
                 layout.style(view, *i).overflow == 2
                     && !layout.nodes[*i].hidden
@@ -238,12 +259,13 @@ pub fn key_event(
 /// metric-specific hit coordinates are interpreted by the host.
 pub fn pointer_event(
     view: &Document,
-    scene: &crate::paint::Scene<'_>,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
     target: Identity,
     x: i32,
     y: i32,
 ) -> Option<Event> {
-    for i in (0..view.len as usize).rev() {
+    let menu = menu_holds(view, scene, x, y);
+    for i in (0..view.len as usize).rev().filter(|_| !menu) {
         if let Some(bar) = scene.scrollbar(i) {
             if bar
                 .track
@@ -268,6 +290,37 @@ pub fn pointer_event(
         }
     }
     let element = scene.hit(x, y)?;
+    // A pointer press enters a text field; only keyboard activation submits
+    // its action. Sharing activation here made rename/search fields submit
+    // as soon as the user clicked them to edit.
+    if view.nodes[..view.len as usize]
+        .iter()
+        .any(|n| n.id == element && n.kind == crate::Kind::TextInput)
+    {
+        let event = Event {
+            target,
+            element,
+            kind: FOCUS,
+            action: 0,
+            value: 0,
+        };
+        event.validate(target, view).ok()?;
+        return Some(event);
+    }
+    activation(view, target, element)
+}
+/// Whether an open popup decides this press: the point is on one, or a menu
+/// with a dismiss action is open (then a press elsewhere only closes it).
+fn menu_holds(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    x: i32,
+    y: i32,
+) -> bool {
+    let layout = scene.layout();
+    layout.over_popup(view, x, y) || layout.modal_popup(view).is_some()
+}
+fn activation(view: &Document, target: Identity, element: u32) -> Option<Event> {
     let node = view.nodes[..view.len as usize]
         .iter()
         .find(|n| n.id == element)?;
@@ -278,6 +331,28 @@ pub fn pointer_event(
     });
     event.validate(target, view).ok()?;
     Some(event)
+}
+/// The element under a secondary (context) click, ignoring open popups: a
+/// second right-click on another item moves the menu there, as on a desktop.
+pub fn context_event(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    target: Identity,
+    x: i32,
+    y: i32,
+) -> Option<Event> {
+    let index = scene.layout().hit_beneath(view, x, y)?;
+    activation(view, target, view.nodes[index].id)
+}
+/// Close the topmost open menu: its popup's action, as a press outside it or
+/// Escape would send. None when no popup with an action is open.
+pub fn popup_dismiss(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    target: Identity,
+) -> Option<Event> {
+    let index = scene.layout().modal_popup(view)?;
+    activation(view, target, view.nodes[index].id)
 }
 
 #[repr(C)]

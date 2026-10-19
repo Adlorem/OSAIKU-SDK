@@ -1,5 +1,17 @@
 use crate::*;
 
+// Version 11 wire widths, including the maximum virtual-list table. Raising
+// the retained-node budget must still fit the bounded transport buffer.
+const _: () = assert!(
+    16 + MAX_NODES * 135
+        + virtual_list::MAX_LISTS * 16
+        + MAX_TEXT
+        + MAX_POINTS * 10
+        + MAX_STATE_STYLES * 26
+        + MAX_DECORATIONS * 14
+        <= MAX_WIRE
+);
+
 struct Writer<'a> {
     out: &'a mut [u8],
     pos: usize,
