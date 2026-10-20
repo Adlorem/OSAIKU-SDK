@@ -144,6 +144,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 let len = state
                     .app
                     .render(wire)
+                    .map_err(|error| log_present_failure(A::APP_ID, "render", &error))
                     .ok()
                     .filter(|len| *len > 0 && *len <= wire.len());
                 let sealed = if SURFACES {
@@ -177,6 +178,9 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                                     },
                                 )
                             });
+                        if let Err(error) = &result {
+                            log_present_failure(A::APP_ID, "raster", error);
+                        }
                         match result {
                             Ok(handle) => Some(handle),
                             Err(
@@ -207,6 +211,9 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                             if scheduler_yield() != SYSCALL_OK {
                                 process_exit(49);
                             }
+                        }
+                        if result != UI_DOCUMENT_WINDOW_CHANNEL_STATUS_OK as isize {
+                            log_present_failure(A::APP_ID, "submit", &result);
                         }
                         (result == UI_DOCUMENT_WINDOW_CHANNEL_STATUS_OK as isize).then_some(())
                     })
@@ -430,6 +437,19 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
             }
         }
         clear(&mut bytes);
+    }
+}
+
+fn log_present_failure(app: u64, stage: &str, error: &impl core::fmt::Debug) {
+    use core::fmt::Write;
+    let mut line = osaiku_ui::text_model::Text::EMPTY;
+    if writeln!(
+        line,
+        "application.present declined app={app};stage={stage};error={error:?}"
+    )
+    .is_ok()
+    {
+        let _ = crate::log_write(line.as_str());
     }
 }
 

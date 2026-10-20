@@ -18,6 +18,7 @@ pub mod font_atlas;
 pub mod image;
 pub mod input;
 pub mod layout;
+pub mod notice;
 pub mod paint;
 pub mod raster;
 pub mod report;

@@ -208,11 +208,19 @@ impl<'a> Scene<'a, &'a Layout> {
         height: u32,
         workspace: &'a mut Layout,
     ) -> Result<Self, Error> {
-        let mut scroll = [0; MAX_NODES];
-        for (offset, node) in scroll.iter_mut().zip(view.nodes.iter()) {
-            *offset = node.scroll_y;
-        }
-        Layout::compute_into(view, width, height, &scroll, workspace)?;
+        let mut scratch = layout::Workspace::EMPTY;
+        Self::prepare_in(view, width, height, workspace, &mut scratch)
+    }
+    /// Prepare using reusable scratch as well as a retained layout. Native
+    /// hosts should initialize both outside their small application stack.
+    pub fn prepare_in(
+        view: &'a Document,
+        width: u32,
+        height: u32,
+        workspace: &'a mut Layout,
+        scratch: &mut layout::Workspace,
+    ) -> Result<Self, Error> {
+        Layout::compute_in(view, width, height, scratch, workspace)?;
         Ok(Self {
             view,
             layout: workspace,

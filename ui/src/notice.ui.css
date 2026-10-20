@@ -1,0 +1,5 @@
+main { display: flex; flex-direction: column; padding: 16px; gap: 12px; background-color: $SURFACE; color: $TEXT; border-width: 1px; border-color: $EDGE; border-radius: 12px; font-size: 16px; }
+h2 { height: 28px; font-size: 20px; }
+p { height: 48px; }
+.detail { height: 24px; color: $MUTED; font-size: 14px; }
+button { height: 36px; background-color: $ACCENT; color: #ffffff; border-radius: 6px; text-align: center; vertical-align: middle; }

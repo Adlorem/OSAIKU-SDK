@@ -4,11 +4,16 @@ use core::{
     cell::UnsafeCell,
     sync::atomic::{AtomicBool, Ordering},
 };
-use osaiku_ui::{layout::Layout, paint::Scene, Document, Error};
+use osaiku_ui::{
+    layout::{Layout, Workspace},
+    paint::Scene,
+    Document, Error,
+};
 
 struct Scratch {
     document: Document,
     layout: Layout,
+    layout_workspace: Workspace,
     metadata: Publication,
     band: [u8; MAX_TRANSFER],
     dirty: DirtyTracker,
@@ -38,6 +43,7 @@ impl HostedRaster {
             scratch: UnsafeCell::new(Scratch {
                 document: Document::EMPTY,
                 layout: Layout::EMPTY,
+                layout_workspace: Workspace::EMPTY,
                 metadata: Publication::EMPTY,
                 band: [0; MAX_TRANSFER],
                 dirty: DirtyTracker::new(),
@@ -95,11 +101,12 @@ impl HostedRaster {
             .geometry
             .content_extent()
             .map_err(|e| RasterError::Publish(PublishError::Content(e)))?;
-        let scene = Scene::prepare(
+        let scene = Scene::prepare_in(
             &scratch.document,
             extent.width,
             extent.height,
             &mut scratch.layout,
+            &mut scratch.layout_workspace,
         )
         .map_err(RasterError::View)?
         .with_theme(
