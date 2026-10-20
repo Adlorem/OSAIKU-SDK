@@ -29,6 +29,19 @@ impl Write for Text {
 pub trait Model {
     fn text(&self, key: u32, out: &mut Text) -> fmt::Result;
     fn flag(&self, key: u32) -> Option<bool>;
+    /// `bind:value` of a `ui-value-bar`: 0..=10000 basis points, `Some(None)`
+    /// when unavailable. Models without values refuse such bindings.
+    fn value(&self, _key: u32) -> Option<Option<u16>> {
+        None
+    }
+}
+/// The node value a model binds, or None to refuse the binding.
+fn bound_value(model: &impl Model, key: u32) -> Option<u16> {
+    match model.value(key)? {
+        Some(v) if v <= 10000 => Some(v),
+        Some(_) => None,
+        None => Some(10001),
+    }
 }
 
 /// Verify a text-only recipe against an authoritative template and model.
@@ -53,8 +66,14 @@ pub fn matches(template: &crate::Document, document: &crate::Document, model: &i
     for i in 0..template.len as usize {
         let mut expected = template.nodes[i];
         let actual = document.nodes[i];
-        if expected.bindings[1] != 0 || expected.bindings[2] != 0 {
+        if expected.bindings[2] != 0 {
             return false;
+        }
+        if expected.bindings[1] != 0 {
+            let Some(value) = bound_value(model, expected.bindings[1]) else {
+                return false;
+            };
+            expected.value = value;
         }
         text.clear();
         let label = if expected.bindings[0] == 0 {
@@ -118,8 +137,11 @@ pub fn bind_into(
     let mut text = Text::EMPTY;
     for i in 0..template.len as usize {
         let node = &mut out.nodes[i];
-        if node.bindings[1] != 0 || node.bindings[2] != 0 {
+        if node.bindings[2] != 0 {
             return Err(crate::Error::Binding);
+        }
+        if node.bindings[1] != 0 {
+            node.value = bound_value(model, node.bindings[1]).ok_or(crate::Error::Binding)?;
         }
         text.clear();
         let label = if node.bindings[0] == 0 {

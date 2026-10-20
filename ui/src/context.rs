@@ -1,7 +1,7 @@
 //! Versioned, read-only context from one committed window publication.
 //! Client-content coordinates exclude chrome, other windows and host overlays.
 use crate::surface::{Extent, Handle, Publication, Rect, Refusal, HIDDEN};
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 pub const STRUCTURE: u32 = 0;
 pub const CONTENT: u32 = 1;
 pub const MAX_PIXELS: u64 = 16 * 1024 * 1024;
@@ -267,7 +267,7 @@ impl Snapshot {
                 .ok_or(Refusal::Bounds)?;
             if e.id == 0
                 || e.label_offset != labels
-                || e.kind > crate::Kind::Template as u32
+                || e.kind > crate::Kind::Popup as u32
                 || e.role > crate::Role::TextBox as u32
                 || e.state & !crate::surface::STATE_MASK != 0
                 || e.state & HIDDEN != 0

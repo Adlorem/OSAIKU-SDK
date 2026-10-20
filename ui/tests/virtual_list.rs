@@ -230,7 +230,8 @@ fn multiple_lists_share_capacity_and_trim_overscan_before_visible_rows() {
         );
     }
     // Neither list may silently lose visible rows when the combined view is too large.
-    let large = Layout::compute(&view, 800, 800, &[0; MAX_NODES]).unwrap();
+    let overflow_height = (MAX_NODES as u32 / 4 + 1) * 20;
+    let large = Layout::compute(&view, 800, overflow_height, &[0; MAX_NODES]).unwrap();
     assert_eq!(requested(&view, &large, a), Err(Error::Limit));
     assert_eq!(realize(&view, &large, &data, &mut out), Err(Error::Limit));
 }

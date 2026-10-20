@@ -283,4 +283,7 @@ const _: () = assert!(core::mem::size_of::<Request>() == 96);
 const _: () = assert!(core::mem::size_of::<Info>() == 136);
 const _: () = assert!(core::mem::size_of::<Element>() == 64);
 const _: () = assert!(core::mem::size_of::<Point>() == 16);
-const _: () = assert!(core::mem::size_of::<Snapshot>() == 136 + 16 + 128 * 64 + 8192 + 120 * 16);
+const _: () = assert!(
+    core::mem::size_of::<Snapshot>()
+        == 136 + 16 + osaiku_ui::MAX_NODES * 64 + osaiku_ui::MAX_TEXT + osaiku_ui::MAX_POINTS * 16
+);
