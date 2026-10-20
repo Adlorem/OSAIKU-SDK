@@ -35,6 +35,13 @@ geometry and cached effect tables; the built-in native preset is `frame::STYLE`.
 They operate on caller-owned RAM; linking the library grants no display access
 or process isolation.
 
+`osaiku_ui::notice` provides a shared HTML/CSS message recipe and a bounded
+`text_model::Model` for its title, explanation, diagnostic detail and dismiss
+label. Hosts compile `notice::HTML` with `notice::CSS`, substituting the palette
+tokens `$SURFACE`, `$TEXT`, `$EDGE`, `$MUTED` and `$ACCENT`. The host handles
+`notice::DISMISS` and owns visibility. OSAIKU uses this component for shell-owned
+launch failures, including failures before an application can open a window.
+
 The experimental [native runtime foundation](docs/native-runtime.md) adds shared
 process addresses, endpoint-aware IPC, bounded application message routing,
 session-memory and teardown contracts,
