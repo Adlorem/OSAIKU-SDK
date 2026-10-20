@@ -292,11 +292,14 @@ fn host_palette_changes_frozen_recipe_pixels_but_keeps_semantic_source() {
     let (dark, source) = render(0);
     let (contrast, other_source) = render(1);
     assert_ne!(dark, contrast);
+    let (light, light_source) = render(2);
+    assert_ne!(dark, light);
+    assert_eq!(source, light_source);
     assert_eq!(source, osaiku_ui::wire_hash(&bytes));
     assert_eq!(source, other_source);
     assert_eq!(dark, render(0).0);
     let mut bad = offer();
-    bad.geometry.theme = 2;
+    bad.geometry.theme = 3;
     assert!(RASTER
         .publish_with(
             bad,

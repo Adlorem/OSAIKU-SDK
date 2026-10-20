@@ -57,6 +57,16 @@ impl WindowStyle {
         border_color: super::theme::BORDER,
         focus_color: super::theme::FOCUS,
     };
+    /// The native style in the light theme's colours.
+    pub const NATIVE_LIGHT: Self = Self {
+        glow: Falloff {
+            color: crate::appearance::LIGHT.glow,
+            ..Self::NATIVE.glow
+        },
+        border_color: crate::appearance::LIGHT.border,
+        focus_color: crate::appearance::LIGHT.focus,
+        ..Self::NATIVE
+    };
     pub const fn valid(self) -> bool {
         self.corner_radius <= MAX_RADIUS
             && self.shadow.valid()
@@ -145,3 +155,13 @@ impl PreparedStyle {
 
 /// The built-in frame's style and renderer use one source of truth.
 pub static NATIVE: PreparedStyle = PreparedStyle::new(super::frame::STYLE);
+/// The built-in frame in the light theme: the same geometry, other colours.
+pub static NATIVE_LIGHT: PreparedStyle = PreparedStyle::new(WindowStyle::NATIVE_LIGHT);
+
+/// The built-in frame's prepared style for a base theme.
+pub fn native(base: crate::appearance::Base) -> &'static PreparedStyle {
+    match base {
+        crate::appearance::Base::Dark => &NATIVE,
+        crate::appearance::Base::Light => &NATIVE_LIGHT,
+    }
+}

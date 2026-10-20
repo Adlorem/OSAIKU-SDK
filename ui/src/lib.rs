@@ -6,6 +6,7 @@
 
 #[cfg(feature = "compiler")]
 extern crate alloc;
+pub mod appearance;
 pub mod catalog;
 #[cfg(feature = "compiler")]
 pub mod compiler;
@@ -28,10 +29,14 @@ pub mod theme;
 pub mod virtual_list;
 mod wire;
 
-pub const VERSION: u16 = 10;
+pub const VERSION: u16 = 11;
 pub const MAX_STATE_STYLES: usize = 128;
 pub const NO_STATE_STYLE: u8 = u8::MAX;
 pub const MAX_DECORATIONS: usize = 32;
+/// `Decoration::background_image` of the host's first image set.
+pub const HOST_IMAGE: u8 = 0x80;
+/// Image sets a background can name.
+pub const HOST_IMAGES: u8 = 8;
 pub const NO_DECORATION: u8 = u8::MAX;
 pub const MAX_NODES: usize = 128;
 pub const MAX_DEPTH: usize = 24;
@@ -255,6 +260,11 @@ pub struct Decoration {
     /// The focus indicator is not drawn (CSS `outline: none`); the element
     /// then shows focus through its own state rules.
     pub outline_none: bool,
+    /// Background image, painted over the background color: zero is none,
+    /// `n` the vertical gradient of `appearance::BACKGROUNDS[n - 1]`, and
+    /// [`HOST_IMAGE`] + `i` the host's `i`-th image set, centred. A reference
+    /// keeps the decoration in its 16 bytes.
+    pub background_image: u8,
 }
 impl Decoration {
     pub const NONE: Self = Self {
@@ -268,6 +278,7 @@ impl Decoration {
         border_color: 0,
         border_token: 0,
         outline_none: false,
+        background_image: 0,
     };
     pub fn valid(self) -> bool {
         self.border_width <= 16
@@ -276,6 +287,8 @@ impl Decoration {
             && self.vertical_align <= 2
             && self.align_items <= 3
             && self.border_token <= theme::TOKEN_COUNT
+            && (usize::from(self.background_image) <= appearance::BACKGROUNDS.len()
+                || (HOST_IMAGE..HOST_IMAGE + HOST_IMAGES).contains(&self.background_image))
             && !(self.border_current_color && (self.border_color != 0 || self.border_token != 0))
     }
     /// Border color fields are meaningless without a border; one canonical

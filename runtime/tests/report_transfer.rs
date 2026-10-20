@@ -161,7 +161,7 @@ fn runtime_replacement_is_contract_checked_authenticated_and_transactional() {
     static VIEW: ReportView = ReportView::new();
     let s = VIEW.open(ID.owner, 1, Surface::Window).unwrap();
     let registration =
-        parse_manifest("report 1 10\nsource local record 1\nfield value local text").unwrap();
+        parse_manifest("report 1 11\nsource local record 1\nfield value local text").unwrap();
     let contract = registration.contract();
     let original = wire(r#"<p id="root">original</p>"#);
     let changed = wire(r#"<p id="root" bind:text="value"></p>"#);

@@ -2,10 +2,11 @@
 //! Box decoration, alignment and chart-area styles (wire major 7).
 use core::fmt::Write;
 use osaiku_ui::{
+    appearance::BACKGROUNDS,
     compiler::compile_unstyled as compile,
     font::ui_font_text_width,
     layout::{Layout, Rect},
-    paint::{Painter, Scene},
+    paint::{vertical_gradient, Painter, Scene},
     raster, state, symbol, text_model, Bindings, Decoration, Document, Error, Point, Value,
     MAX_DECORATIONS, MAX_WIRE, NO_DECORATION, VERSION,
 };
@@ -73,6 +74,7 @@ fn box_properties_intern_one_canonical_decoration_per_appearance() {
             border_color: 0x1aff_ffff,
             border_token: 0,
             outline_none: false,
+            background_image: 0,
         }
     );
     assert_eq!(
@@ -638,12 +640,92 @@ fn decoration_references_and_entries_are_validated() {
     let mut bytes = [0; MAX_WIRE];
     let len = view.encode(&mut bytes).unwrap();
     // The last record is the decoration: seven bytes, its color, its color
-    // token and the outline flag.
-    bytes[len - 6] = 2;
+    // token, the outline flag and the background preset.
+    bytes[len - 7] = 2;
     assert_eq!(Document::decode(&bytes[..len]), Err(Error::Structure));
     let len = view.encode(&mut bytes).unwrap();
-    bytes[len - 1] = 2;
+    bytes[len - 2] = 2;
     assert_eq!(Document::decode(&bytes[..len]), Err(Error::Structure));
+    let len = view.encode(&mut bytes).unwrap();
+    bytes[len - 1] = BACKGROUNDS.len() as u8 + 1;
+    assert_eq!(Document::decode(&bytes[..len]), Err(Error::Structure));
+}
+
+#[test]
+fn background_presets_paint_their_gradient_over_the_background_in_the_box_shape() {
+    let view = compile(
+        r#"<main id="r"><div id="d"></div><div id="flat"></div></main>"#,
+        "div { height: 11px; border-radius: 4px; background-color: #ff0000;
+               background-image: theme(dusk); }
+         #flat { background-image: none; }",
+    )
+    .unwrap();
+    let dusk = BACKGROUNDS[2];
+    assert_eq!(dusk.name, "dusk");
+    let decoration = |id| view.decoration(view.nodes[index(&view, id)].style);
+    assert_eq!(
+        (
+            decoration("d").background_image,
+            decoration("flat").background_image
+        ),
+        (3, 0)
+    );
+    let mut bytes = [0; MAX_WIRE];
+    let len = view.encode(&mut bytes).unwrap();
+    assert_eq!(Document::decode(&bytes[..len]).unwrap(), view);
+
+    let width = 20;
+    let image = pixels(&view, width, 22, 3);
+    let pixel = |x: u32, y: u32| image[(y * width + x) as usize];
+    // The opaque preset hides the background color, one row at a time.
+    for y in 0..11 {
+        let row = vertical_gradient(dusk.top, dusk.bottom, y, 11);
+        assert_eq!(pixel(10, y), 0xff00_0000 | row, "row {y}");
+    }
+    assert_eq!(pixel(0, 0) >> 24, 0, "the corner stays rounded");
+    assert_eq!(pixel(10, 11), 0xffff_0000, "no image: the background color");
+
+    for value in [
+        "theme(sunset)",
+        "theme(text)",
+        "linear-gradient(#000000, #ffffff)",
+        "url(a.png)",
+    ] {
+        let css = format!("div {{ background-image: {value}; }}");
+        assert!(
+            compile(r#"<main id="r"><div id="d"></div></main>"#, &css).is_err(),
+            "{value}"
+        );
+    }
+}
+
+#[test]
+fn vertical_gradient_rows_round_each_channel_between_the_stops() {
+    assert_eq!(
+        vertical_gradient(0x8010_2030, 0x4050_6070, 0, 5),
+        0x8010_2030
+    );
+    assert_eq!(
+        vertical_gradient(0x8010_2030, 0x4050_6070, 4, 5),
+        0x4050_6070
+    );
+    assert_eq!(
+        vertical_gradient(0x8010_2030, 0x4050_6070, 2, 5),
+        0x6030_4050
+    );
+    assert_eq!(
+        vertical_gradient(0xff00_0000, 0xff00_00ff, 1, 3),
+        0xff00_0080
+    );
+    // One row, or a row past the end, is a stop rather than a division by zero.
+    assert_eq!(
+        vertical_gradient(0xff11_2233, 0xff44_5566, 0, 1),
+        0xff11_2233
+    );
+    assert_eq!(
+        vertical_gradient(0xff11_2233, 0xff44_5566, 9, 3),
+        0xff44_5566
+    );
 }
 
 #[test]

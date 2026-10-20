@@ -51,7 +51,7 @@ impl Writer<'_> {
             u8::from(d.border_current_color),
         ])?;
         self.u32(d.border_color)?;
-        self.bytes(&[d.border_token, u8::from(d.outline_none)])
+        self.bytes(&[d.border_token, u8::from(d.outline_none), d.background_image])
     }
 }
 fn flag(value: u8) -> Result<bool, Error> {
@@ -120,6 +120,7 @@ impl<'a> Reader<'a> {
             border_color: self.u32()?,
             border_token: self.u8()?,
             outline_none: flag(self.u8()?)?,
+            background_image: self.u8()?,
         })
     }
 }

@@ -11,7 +11,7 @@ fn provider_calls_are_guarded_and_refused_encoding_does_not_commit_or_poison_the
     static HOST: ReportView = ReportView::new();
     let session = HOST.open(9, 1, Surface::Window).unwrap();
     let manifest =
-        parse_manifest("report 1 10\nsource sample record 1\nfield label sample text").unwrap();
+        parse_manifest("report 1 11\nsource sample record 1\nfield label sample text").unwrap();
     let template = compile(r#"<span id="root" bind:text="label"></span>"#, "").unwrap();
     let mut source = vec![0; MAX_WIRE];
     let len = template.encode(&mut source).unwrap();

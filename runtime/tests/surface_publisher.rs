@@ -133,7 +133,7 @@ fn geometry_query_checks_shape_identity_and_receipt() {
             };
             match fault {
                 1 => value.target.window += 1,
-                2 => value.theme = 2,
+                2 => value.theme = 3,
                 3 => receipt.epoch += 1,
                 4 => value.resize_generation = 0,
                 _ => {}

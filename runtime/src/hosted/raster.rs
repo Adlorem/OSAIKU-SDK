@@ -58,6 +58,18 @@ impl HostedRaster {
         &self,
         offer: FrameOffer,
         wire: &[u8],
+        exchange: impl FnMut(&Request, &mut [u8], &mut Receipt) -> isize,
+        checkpoint: impl FnMut() -> Result<(), isize>,
+    ) -> Result<Handle, RasterError> {
+        self.publish_with_images(offer, wire, &[], exchange, checkpoint)
+    }
+
+    /// [`Self::publish_with`], drawing the application's own images.
+    pub fn publish_with_images(
+        &self,
+        offer: FrameOffer,
+        wire: &[u8],
+        images: &'static [osaiku_ui::image::ImageSet],
         mut exchange: impl FnMut(&Request, &mut [u8], &mut Receipt) -> isize,
         mut checkpoint: impl FnMut() -> Result<(), isize>,
     ) -> Result<Handle, RasterError> {
@@ -93,7 +105,8 @@ impl HostedRaster {
         .with_theme(
             osaiku_ui::theme::Theme::from_id(offer.geometry.theme)
                 .ok_or(RasterError::View(Error::Value))?,
-        );
+        )
+        .with_images(images);
         // Take before modifying fingerprints: every unsuccessful path loses the
         // base. Geometry includes epoch/incarnation, resize, palette and chrome.
         let previous = scratch.dirty.base.take().filter(|b| {

@@ -157,3 +157,42 @@ fn default_image_runs_skip_transparent_pixels_and_respect_the_clip() {
         .iter()
         .all(|(r, ..)| r.width == 1 && r.x == 10));
 }
+
+#[test]
+fn a_host_image_backs_a_container_centred_under_its_children() {
+    let view = compile(
+        r#"<main id="r"><div id="d"><span id="s">x</span></div><div id="none"></div></main>"#,
+        "div { width: 6px; height: 4px; background-image: image(0); }
+         #none { background-image: image(1); }",
+    )
+    .unwrap();
+    let mut retained = Retained::default();
+    Scene::from_document(&view, 6, 8)
+        .unwrap()
+        .with_images(&IMAGES)
+        .paint(&mut retained);
+    // The largest size that fits the 6x4 box, centred; a missing set draws
+    // nothing; the child's text comes after the image.
+    assert_eq!(
+        retained.0.images,
+        [(
+            Rect {
+                x: 1,
+                y: 0,
+                width: 4,
+                height: 4
+            },
+            4
+        )]
+    );
+    for value in ["image(8)", "image(-1)", "image()", "image(mark)"] {
+        assert!(
+            compile(
+                r#"<main id="r"><div id="d"></div></main>"#,
+                &format!("div {{ background-image: {value}; }}"),
+            )
+            .is_err(),
+            "{value}"
+        );
+    }
+}

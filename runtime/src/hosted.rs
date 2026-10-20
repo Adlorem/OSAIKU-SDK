@@ -71,6 +71,12 @@ pub trait WindowApplication: Sized {
     }
     /// True only when all app-owned work/data permits shutdown preparation.
     fn prepare_shutdown(&mut self) -> bool;
+    /// Images the view names with `ui-icon src` or `background-image:
+    /// image(N)`, read while the frame that follows `render` is drawn. Their
+    /// pixels must not change until that drawing is finished.
+    fn images(&self) -> &'static [osaiku_ui::image::ImageSet] {
+        &[]
+    }
 }
 
 pub struct WindowSession {

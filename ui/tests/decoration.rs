@@ -87,7 +87,8 @@ fn standalone_frame_template_binds_literal_metadata_and_the_painted_controls() {
             .replace("$SURFACE", colors[0])
             .replace("$TITLE", colors[1])
             .replace("$TEXT", colors[2])
-            .replace("$ACCENT", colors[3]);
+            .replace("$ACCENT", colors[3])
+            .replace("$MUTED", "#8b91a0");
         let doc = compile(frame::HTML, &css).unwrap();
         for centered in [false, true] {
             let scene = frame::scene(
