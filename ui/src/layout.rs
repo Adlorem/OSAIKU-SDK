@@ -69,16 +69,24 @@ struct Measurements {
     height: [u32; MAX_NODES],
 }
 impl Measurements {
+    const EMPTY: Self = Self {
+        first: [NONE; MAX_NODES],
+        next: [NONE; MAX_NODES],
+        height: [0; MAX_NODES],
+    };
     fn new(view: &Document, width: u32) -> Self {
-        let mut result = Self {
-            first: [NONE; MAX_NODES],
-            next: [NONE; MAX_NODES],
-            height: [0; MAX_NODES],
-        };
+        let mut result = Self::EMPTY;
+        result.prepare(view, width);
+        result
+    }
+    fn prepare(&mut self, view: &Document, width: u32) {
+        self.first.fill(NONE);
+        self.next.fill(NONE);
+        self.height.fill(0);
         for i in (1..view.len as usize).rev() {
             let parent = view.nodes[i].parent as usize;
-            result.next[i] = result.first[parent];
-            result.first[parent] = i as u16;
+            self.next[i] = self.first[parent];
+            self.first[parent] = i as u16;
         }
         // The current subset has single-line text and viewport-relative style
         // breakpoints: intrinsic height does not depend on assigned width.
@@ -87,7 +95,7 @@ impl Measurements {
             let n = &view.nodes[i];
             let s = view.resolved_style(i, width);
             let [top, _, bottom, _] = view.insets(s);
-            result.height[i] = if n.kind == Kind::Template {
+            self.height[i] = if n.kind == Kind::Template {
                 0
             } else if s.height != u16::MAX {
                 s.height as u32
@@ -103,15 +111,15 @@ impl Measurements {
             } else {
                 let mut count = 0u32;
                 let mut content = 0;
-                for child in result.children(i) {
+                for child in self.children(i) {
                     if out_of_flow(&view.nodes[child]) {
                         continue;
                     }
                     count += 1;
                     content = if s.direction == 1 {
-                        content.max(result.height[child])
+                        content.max(self.height[child])
                     } else {
-                        content + result.height[child]
+                        content + self.height[child]
                     };
                 }
                 if s.direction == 0 {
@@ -120,7 +128,6 @@ impl Measurements {
                 content + top + bottom
             };
         }
-        result
     }
     fn children(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
         core::iter::successors(
@@ -130,6 +137,21 @@ impl Measurements {
     }
 }
 const _: () = assert!(core::mem::size_of::<Measurements>() <= 2048);
+
+/// Reusable layout scratch for hosts with small stacks. Keep it in the same
+/// guarded allocation as the layout; scenes borrow only the finished layout.
+/// Preparing in place avoids retaining these arrays above recursive placement.
+pub struct Workspace {
+    measurements: Measurements,
+    scroll: [u32; MAX_NODES],
+}
+impl Workspace {
+    pub const EMPTY: Self = Self {
+        measurements: Measurements::EMPTY,
+        scroll: [0; MAX_NODES],
+    };
+}
+const _: () = assert!(core::mem::size_of::<Workspace>() <= 3072);
 
 /// Hidden nodes and popups take no space in their parent's flow.
 fn out_of_flow(n: &Node) -> bool {
@@ -266,6 +288,38 @@ impl Layout {
         scroll: &[u32; MAX_NODES],
         result: &mut Self,
     ) -> Result<(), Error> {
+        let mut measurements = Measurements::EMPTY;
+        Self::compute_prepared(view, width, height, scroll, &mut measurements, result)
+    }
+    /// Use the document's scroll offsets and caller-owned scratch. No
+    /// node-sized temporary is placed on the caller's native stack.
+    pub fn compute_in(
+        view: &Document,
+        width: u32,
+        height: u32,
+        workspace: &mut Workspace,
+        result: &mut Self,
+    ) -> Result<(), Error> {
+        for (offset, node) in workspace.scroll.iter_mut().zip(view.nodes.iter()) {
+            *offset = node.scroll_y;
+        }
+        Self::compute_prepared(
+            view,
+            width,
+            height,
+            &workspace.scroll,
+            &mut workspace.measurements,
+            result,
+        )
+    }
+    fn compute_prepared(
+        view: &Document,
+        width: u32,
+        height: u32,
+        scroll: &[u32; MAX_NODES],
+        measurements: &mut Measurements,
+        result: &mut Self,
+    ) -> Result<(), Error> {
         view.validate()?;
         if width == 0 || height == 0 || width > 4096 || height > 4096 {
             return Err(Error::Limit);
@@ -279,10 +333,10 @@ impl Layout {
         result.nodes.fill(Placed::default());
         result.len = view.len as usize;
         result.viewport = viewport;
-        let measurements = Measurements::new(view, width);
+        measurements.prepare(view, width);
         result.place(
             view,
-            &measurements,
+            measurements,
             0,
             viewport,
             viewport,

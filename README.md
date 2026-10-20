@@ -42,6 +42,12 @@ tokens `$SURFACE`, `$TEXT`, `$EDGE`, `$MUTED` and `$ACCENT`. The host handles
 `notice::DISMISS` and owns visibility. OSAIKU uses this component for shell-owned
 launch failures, including failures before an application can open a window.
 
+Native hosts with small stacks should use `Scene::prepare_in` with a reusable
+`layout::Workspace::EMPTY` beside their retained `Layout`. The hosted runtime
+already owns both under its raster guard. This moves 3 KiB of measurement and
+scroll arrays off the recursive layout stack; `Scene::prepare` remains available
+for callers with sufficient stack space.
+
 The experimental [native runtime foundation](docs/native-runtime.md) adds shared
 process addresses, endpoint-aware IPC, bounded application message routing,
 session-memory and teardown contracts,
