@@ -211,7 +211,9 @@ fn catalog_is_static_typed_bounded_and_never_an_execution_grant() {
     assert_eq!(CATALOG.len(), 6);
     for (i, op) in CATALOG.iter().enumerate() {
         assert_eq!(op.id as usize, i + 1);
-        assert_eq!(op.version, 1);
+        // System entity/control records are v1; window context is v2. Catalog
+        // entries advertise each operation's protocol, not one SDK-wide version.
+        assert_eq!(op.version, [1, 2, 2, 2, 2, 1][i]);
         assert_ne!(op.required_scope, 0);
         assert!(op.max_bytes <= 65536);
         assert!(op.parameters.iter().all(|p| matches!(

@@ -1,0 +1,18 @@
+[package]
+id = "dev.sdk-examples.native-hello"
+name = "Native Hello"
+version = "0.1.0"
+release = 1
+epoch = 1
+executable = "osaiku-native-hello"
+memory_bytes = 1048576
+io_bytes = 65536
+threads = 1
+instances = 4
+surfaces = 0
+entry = "native"
+
+[compatibility]
+abi_major = 1
+abi_minor = 0
+protocols = [{ id = 1, major = 1 }]

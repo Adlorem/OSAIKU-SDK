@@ -15,6 +15,7 @@ pub mod hosted;
 pub mod ipc;
 pub mod lifecycle;
 pub mod model_manager;
+pub use osaiku_package::compatibility as package_compatibility;
 pub mod packaged;
 pub mod process;
 #[cfg(target_arch = "x86_64")]

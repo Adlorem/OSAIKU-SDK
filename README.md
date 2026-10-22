@@ -53,7 +53,10 @@ process addresses, endpoint-aware IPC, bounded application message routing,
 session-memory and teardown contracts,
 window metadata/codecs, typed UI submission and event reception,
 syscall traps, a public target/linker and an SDK-only native
-ELF example. The OS consumes that same source. The public single-window host
+ELF example. The OS consumes that same source. The [application package v1
+tools and contracts](docs/application-packages.md) add signed packages,
+publisher policy and signed repository indexes; runtime installation and
+catalog integration are still separate OS work. The public single-window host
 runtime and [window-hello](examples/window-hello/README.md) example cover
 HTML/CSS compilation, input, submission and session teardown. Deployment still
 requires an OS-admitted image; package registration is outside this subset.
