@@ -21,6 +21,7 @@ pub mod protocol {
     pub const DESKTOP_APPEARANCE: u32 = 4;
     pub const SYSTEM_METRICS: u32 = 5;
     pub const PACKAGE_CATALOG: u32 = 6;
+    pub const PRIVATE_DATA: u32 = 7;
 }
 
 /// Additional features beyond the native x86-64 baseline. The host advertises

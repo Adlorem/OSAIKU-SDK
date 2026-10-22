@@ -25,6 +25,7 @@ pub mod outcome {
     pub const CANCELLED: u64 = 3;
     pub const INTERRUPTED: u64 = 4;
     pub const REMOVED: u64 = 5;
+    pub const DATA_PURGED: u64 = 6;
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -148,7 +149,7 @@ impl Reply {
         }
         match request.operation {
             operation::STATUS => empty_item && self.outcome == 0,
-            operation::OUTCOME => empty_item && self.outcome <= outcome::REMOVED,
+            operation::OUTCOME => empty_item && self.outcome <= outcome::DATA_PURGED,
             operation::ITEM => {
                 self.outcome == 0
                     && self.release != 0

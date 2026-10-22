@@ -240,4 +240,33 @@ A missing or invalid policy/catalog is unavailable, never implicitly seeded
 with a test key. Installation, trust decisions, launch, cancellation and private
 data access are not operations in this observation protocol. Their protected
 runtime UI and service integration are still pending in A5; catalog success is
-not evidence that runtime installation is complete.
+not evidence that runtime installation is complete. Private data has a separate
+client described below. `OUTCOME` also recognizes `DATA_PURGED` (6), meaning a
+separately approved data purge was committed; pinned running revisions can
+delay physical reclamation.
+
+## Private application data (A5)
+
+`osaiku_runtime::private_data` uses syscall 396 and `exchange` on the native
+target (`exchange_with` for transports/tests). `READ` returns up to 4096 bytes
+at an offset; `REPLACE` atomically replaces a small file with up to 4096 bytes,
+including an empty file. It is not a streaming append interface. Names contain
+1–63 ASCII letters, digits, dots, underscores or hyphens; `.` and `..`, paths,
+drive names and nonzero padding are rejected. Initialize records with `EMPTY`.
+The compatibility requirement is `protocol::PRIVATE_DATA` (7), version 1.0.
+Request and reply records are exactly 4200 and 4128 bytes respectively.
+
+The request names neither a publisher nor a realm, endpoint or launch Context.
+The kernel resolves the actual calling process, its current policy authority
+and its exact held package lease. Boot applications and processes without a
+resident package lease cannot use this interface. Copying a Context cannot
+transfer data access. The dispatcher runs on the storage pump with owned
+request bytes, rechecks policy before access, and clears every payload byte on
+failure. `BUSY` is retryable; client helpers validate sequence, lengths and
+unused bytes before exposing results.
+
+An old running revision retains its data after an update or uninstall. A
+separate purge stops future installations from inheriting that realm, while
+running consumers keep their pinned realm until retirement. A durable policy
+revocation still denies further access immediately. This client does not
+authorize installation, purge, selected-file access or publisher trust.
