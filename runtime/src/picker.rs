@@ -105,30 +105,49 @@ impl Reply {
             && ((r.operation == READ && self.length <= r.length) || self.length == 0)
     }
 }
-pub fn exchange_with(
+/// Borrowed wire workspace for small-stack native applications. No payload
+/// array is allocated by this function; the caller may retain it in its image.
+pub fn exchange_into_with(
     r: &Request,
+    out: &mut Reply,
     mut f: impl FnMut(&Request, &mut Reply) -> isize,
-) -> Result<Reply, isize> {
+) -> Result<(), isize> {
+    *out = Reply::EMPTY;
     if !r.canonical() {
         return Err(crate::abi::SYSCALL_ERR_INVALID_STATE);
     }
+    let code = f(r, out);
+    if code != 0 || !out.valid_for(r) {
+        *out = Reply::EMPTY;
+        return Err(if code != 0 {
+            code
+        } else {
+            crate::abi::SYSCALL_ERR_INVALID_STATE
+        });
+    }
+    Ok(())
+}
+pub fn exchange_with(
+    r: &Request,
+    f: impl FnMut(&Request, &mut Reply) -> isize,
+) -> Result<Reply, isize> {
     let mut out = Reply::EMPTY;
-    let code = f(r, &mut out);
-    if code != 0 {
-        return Err(code);
-    }
-    if !out.valid_for(r) {
-        return Err(crate::abi::SYSCALL_ERR_INVALID_STATE);
-    }
+    exchange_into_with(r, &mut out, f)?;
     Ok(out)
 }
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
-pub fn exchange(r: &Request) -> Result<Reply, isize> {
-    exchange_with(r, |r, out| {
+pub fn exchange_into(r: &Request, out: &mut Reply) -> Result<(), isize> {
+    exchange_into_with(r, out, |r, out| {
         let code: isize;
         unsafe {
             core::arch::asm!("int 0x80",inlateout("rax") SYSCALL as isize=>code,in("rdi")r as *const Request,in("rsi")out as *mut Reply,in("rdx")0u64,in("r8")0u64,in("r9")0u64,options(nostack));
         }
         code
     })
+}
+#[cfg(all(target_arch = "x86_64", target_os = "none"))]
+pub fn exchange(r: &Request) -> Result<Reply, isize> {
+    let mut out = Reply::EMPTY;
+    exchange_into(r, &mut out)?;
+    Ok(out)
 }

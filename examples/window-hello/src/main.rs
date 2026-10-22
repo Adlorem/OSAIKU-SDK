@@ -18,8 +18,7 @@ struct Counter {
     accepted: [osaiku_ui::Identity; 2],
 }
 impl WindowApplication for Counter {
-    // Current experimental deployment uses the OS's admitted System Update
-    // image slot in a separate demo ESP. It does not register/grant privileges.
+    // Kernel-issued generic launch context; no built-in app ID or slot.
     fn new() -> Self {
         Self {
             count: 0,

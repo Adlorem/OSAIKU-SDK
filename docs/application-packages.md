@@ -8,10 +8,12 @@ The host Python serializer is checked against the shared Rust parser before
 publishing output. It is not a second verifier.
 
 These tools create and verify artifacts. They do not install or run them.
-Package signatures do not grant capabilities or system roles. Existing Themes
-can be packaged as a migration candidate, but its runtime still needs migration
-to the public appearance/file protocols. The native-hello example builds solely
-from SDK sources; it is not a Linux executable.
+Package signatures do not grant capabilities or system roles. Themes uses the
+public `appearance` and `picker` clients and reads the generic kernel-issued
+launch context through `hosted::run`. Its application-owned image decoder and
+view helper require no private OS ABI. `examples/window-hello/package.toml`
+provides a second independent package, `dev.sdk-examples.counter`; it uses no
+built-in application slot. Both are OSAIKU executables, not host programs.
 
 ## Tools
 
@@ -338,3 +340,39 @@ Repository browsing and HTTPS download remain explicitly dependent on Stage 33
 network transport, trusted time and certificate/DNS destination policy (A5-N).
 They are not provided by a parser or this local disk/USB workflow. Physical
 startup/latency/RAM qualification remains a separate acceptance requirement.
+
+## Catalog launcher and independent applications (A6)
+
+Open **Files → Applications**, select the catalog item with Previous/Next and
+choose **Launch**. The protected snapshot binds the exact catalog revision,
+policy epoch, mount, item digest, publisher, permissions and view generation.
+Stale clicks are refused. Installing and launching are separate actions.
+`initd` alone redeems the launch token, then authorizes and creates the exact
+endpoint's window through the compositor. Opening/presentation failure is
+reported in the panel; unrelated application windows are preserved. The broker
+retains a successful process result until initd acknowledges `OPENED` or
+`OPEN_FAILED`. A restarted initd preserves an already created window.
+
+The launcher shows the signed display name and a monochrome 8×8 thumbnail,
+scaled to 32×32. RGBA components up to 256×256 are sampled in at most eight
+bounded row reads; eight digest-keyed thumbnails are cached. Missing icons use
+a fixed fallback. Catalog mutation notifications coalesce refreshes of a visible
+panel; a hidden panel does not poll the catalog. Existing retained rendering
+handles window damage; icon decode never runs during painting.
+
+Themes' **Choose image** asks for a read-only selected-file scope. In Files,
+choose **Select file for application**, browse the native disk or USB, open the
+image and approve the protected dialog. Themes reads only that opaque scope in
+4 KiB chunks. Its two wire payload buffers live in a retained workspace through
+`picker::exchange_into`, away from the decoder’s 16 KiB thread stack. Cancel/reselection/window close release scopes. Changing desktop
+appearance still requires the independently approved appearance permission.
+The wallpaper is system appearance state; it is not a private application file.
+
+The OS build verifier exports Themes, its own `image` library and the public
+SDK into a temporary workspace. `tools/ci/test-sdk-native.py --example themes`
+and `--example window-hello` preserve source/ELF hashes and validate mappings.
+`tools/ci/test-installed-sdk-apps.py --output target/application-installation/a6-installed`
+builds both, creates **test-only** signed fixtures and exercises actual OSAIFS
+installation, image authentication and the shared loader's page recipes. The
+fixture uses a public test seed; it is not a production publisher or a physical
+execution qualification. Use your own publisher key for actual installation.

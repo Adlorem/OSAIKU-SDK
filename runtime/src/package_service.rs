@@ -6,6 +6,9 @@ pub const POLL: u64 = 0;
 pub const EXECUTE: u64 = 1;
 pub const STATUS: u64 = 2;
 pub const CANCEL: u64 = 3;
+/// initd acknowledges an opened window, or reports a failed first-frame transaction.
+pub const OPENED: u64 = 4;
+pub const OPEN_FAILED: u64 = 5;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -24,7 +27,7 @@ impl Request {
     pub fn canonical(&self) -> bool {
         self.version == VERSION
             && self.sequence != 0
-            && self.operation <= CANCEL
+            && self.operation <= OPEN_FAILED
             && ((self.operation == POLL) == (self.token == 0))
     }
 }

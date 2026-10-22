@@ -1,0 +1,23 @@
+# An ordinary package ID absent from the OS boot catalog.
+[package]
+id = "dev.sdk-examples.counter"
+name = "Licznik SDK"
+version = "0.1.0"
+sdk = "0.1.0"
+release = 1
+epoch = 1
+executable = "osaiku-window-hello"
+permissions = 0
+memory_bytes = 16777216
+io_bytes = 65536
+threads = 1
+instances = 4
+surfaces = 1
+entry = "window"
+width = 640
+height = 480
+
+[compatibility]
+abi_major = 1
+abi_minor = 0
+protocols = [{ id = 1, major = 1 }, { id = 2, major = 1 }]

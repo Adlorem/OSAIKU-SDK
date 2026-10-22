@@ -75,3 +75,36 @@ fn errors_never_return_private_payload_and_replies_are_correlated() {
     out.bytes[1] = 1;
     assert!(!out.valid_for(&r));
 }
+
+#[test]
+fn borrowed_workspace_scrubs_partial_payload_on_transport_or_correlation_failure() {
+    let request = Request {
+        sequence: 9,
+        operation: READ,
+        window: 2,
+        incarnation: 3,
+        token: 4,
+        length: 4,
+        ..Request::EMPTY
+    };
+    let mut out = Reply::EMPTY;
+    for code in [0, -7] {
+        assert!(exchange_into_with(&request, &mut out, |_, reply| {
+            reply.sequence = 8;
+            reply.length = 4;
+            reply.bytes[..4].fill(99);
+            code
+        })
+        .is_err());
+        assert_eq!(out, Reply::EMPTY);
+    }
+    exchange_into_with(&request, &mut out, |r, reply| {
+        reply.sequence = r.sequence;
+        reply.token = r.token;
+        reply.length = 4;
+        reply.bytes[..4].copy_from_slice(b"data");
+        0
+    })
+    .unwrap();
+    assert_eq!(&out.bytes[..4], b"data");
+}

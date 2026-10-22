@@ -3,7 +3,7 @@ use osaiku_runtime::package_service::*;
 fn commands_cannot_carry_consent_or_paths() {
     assert_eq!(core::mem::size_of::<Request>(), 32);
     assert_eq!(core::mem::size_of::<Reply>(), 64);
-    for op in [EXECUTE, STATUS, CANCEL] {
+    for op in [EXECUTE, STATUS, CANCEL, OPENED, OPEN_FAILED] {
         assert!(!Request {
             operation: op,
             ..Request::EMPTY

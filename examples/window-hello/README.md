@@ -16,25 +16,18 @@ The ELF is `target/x86_64-osaiku-user/release/osaiku-window-hello` unless a targ
 directory override is active. It is an OSAIKU executable, not a host program.
 No OS checkout is needed to compile it.
 
-The experimental host currently admits fixed application images. This example
-reads its launch identity from the kernel and can be deployed into the **System Update image slot in a
-separate disposable demo ESP**, replacing `EFI/BOOT/SYSUPD.ELF` there. Launch it
-with that slot's existing shelf icon. The admitted app identity remains slot 7; window chrome is supplied by the OS.
-This demonstrates the public window runtime, not registration of a new package.
-That demo image cannot be used to operate the normal System Update application.
-Keep the production ESP unchanged. No kernel renderer branch or test mode is
-needed; the example submits the same generic SDK content as System Manager.
+Package the ELF using [package.toml](package.toml) and the public
+[package tools](../../docs/application-packages.md). Approve the publisher key,
+install the `.osapp` from disk/USB and choose **Files → Applications → Launch**.
+The kernel issues a dynamic identity for `dev.sdk-examples.counter`; initd opens
+its ordinary SDK window without replacing any boot image or restarting the OS.
 
-The OS repository provides:
+The OS repository can verify the independent build with:
 
 ```text
 python tools/ci/test-sdk-native.py --example window-hello --output target/sdk-window-build
-python tools/qemu/test-sdk-window.py --esp target/esp --elf target/sdk-window-build/osaiku-window-hello.elf --output target/sdk-window-guest
 ```
 
-The first command exports only SDK sources to a temporary directory, builds
-offline and checks ELF bounds/W^X, preserving source and binary hashes. The
-second requires Linux QEMU/OVMF and a production-built ESP. It makes its own
-copy, installs the ELF only there and checks open, disabled state, real HID
-pointer/keyboard activation, reset and close/reopen. Use a fresh output directory.
-This is focused guest evidence, not physical or performance qualification.
+This exports SDK sources to a temporary workspace, builds offline and checks
+ELF bounds/W^X, preserving source and binary hashes. Build and host-contract
+success do not prove physical execution or interactive UI behavior.
