@@ -159,6 +159,15 @@ impl<'a> Manifest<'a> {
     pub fn release(&self) -> u64 {
         u64_at(self.bytes, 16)
     }
+    pub fn memory_bytes(&self) -> u64 {
+        u64_at(self.bytes, 32)
+    }
+    pub fn io_bytes(&self) -> u64 {
+        u64_at(self.bytes, 40)
+    }
+    pub fn instances(&self) -> u16 {
+        u16_at(self.bytes, 50)
+    }
     pub fn permissions(&self) -> u64 {
         u64_at(self.bytes, 24)
     }

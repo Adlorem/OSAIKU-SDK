@@ -14,6 +14,7 @@ pub struct Verifier {
     prefix_len: usize,
     content: ContentVerifier,
     failed: bool,
+    publisher: [u8; 32],
 }
 impl Verifier {
     pub fn new(
@@ -38,6 +39,7 @@ impl Verifier {
             prefix_len: 0,
             content,
             failed: false,
+            publisher: Envelope::parse(header, total, Domain::Application)?.key_id(),
         })
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<(), Error> {
@@ -90,12 +92,48 @@ impl Verifier {
         Ok(())
     }
     pub fn finish(self) -> Result<[u8; 32], Error> {
+        Ok(self.finish_verified()?.sha256())
+    }
+    /// Proof of the complete streamed package, including every component.
+    /// Metadata alone, a signed header or an incomplete stream cannot create it.
+    pub fn finish_verified(self) -> Result<VerifiedManifest, Error> {
         if self.failed {
             return Err(Error::Failed);
         }
         if self.position != self.total {
             return Err(Error::Incomplete);
         }
-        self.content.finish()
+        let digest = self.content.finish()?;
+        Ok(VerifiedManifest {
+            metadata: self.metadata,
+            metadata_len: self.metadata_len,
+            total: self.total,
+            publisher: self.publisher,
+            digest,
+        })
+    }
+}
+
+/// Authenticated metadata retained without keeping the complete package in RAM.
+/// This proves package verification, not approval or continued storage ownership.
+pub struct VerifiedManifest {
+    metadata: [u8; MAX_METADATA_BYTES],
+    metadata_len: usize,
+    total: u64,
+    publisher: [u8; 32],
+    digest: [u8; 32],
+}
+impl VerifiedManifest {
+    pub fn manifest(&self) -> Manifest<'_> {
+        Manifest::parse(&self.metadata[..self.metadata_len], self.total).expect("verified manifest")
+    }
+    pub fn publisher(&self) -> [u8; 32] {
+        self.publisher
+    }
+    pub fn sha256(&self) -> [u8; 32] {
+        self.digest
+    }
+    pub fn length(&self) -> u64 {
+        self.total
     }
 }
