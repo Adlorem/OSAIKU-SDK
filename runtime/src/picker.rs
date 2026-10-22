@@ -6,7 +6,74 @@ pub const STATUS: u64 = 2;
 pub const CANCEL: u64 = 3;
 pub const READ: u64 = 4;
 pub const REPLACE: u64 = 5;
+/// Ask for a new file in a human-selected directory. The payload is one file
+/// name, never a path. Confirmation grants only create-if-absent for that name.
+pub const CREATE: u64 = 6;
 pub const CAPACITY: usize = 4096;
+/// Authenticated host delivery of a READ scope, already bound by the broker.
+/// Receiving these bytes from another app never authorizes an open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpenScope {
+    pub sequence: u64,
+    pub window: u64,
+    pub incarnation: u64,
+    pub token: u64,
+}
+impl OpenScope {
+    const MAGIC: u64 = 0x31504f43534e504f;
+    pub fn encode(self) -> [u8; 40] {
+        let mut b = [0; 40];
+        for (v, c) in [
+            Self::MAGIC,
+            self.sequence,
+            self.window,
+            self.incarnation,
+            self.token,
+        ]
+        .iter()
+        .zip(b.chunks_exact_mut(8))
+        {
+            c.copy_from_slice(&v.to_le_bytes());
+        }
+        b
+    }
+    pub fn decode(b: &[u8]) -> Option<Self> {
+        if b.len() != 40 {
+            return None;
+        }
+        let mut w = [0; 5];
+        for (v, c) in w.iter_mut().zip(b.chunks_exact(8)) {
+            *v = u64::from_le_bytes(c.try_into().ok()?);
+        }
+        (w[0] == Self::MAGIC && w[1..].iter().all(|v| *v != 0)).then_some(Self {
+            sequence: w[1],
+            window: w[2],
+            incarnation: w[3],
+            token: w[4],
+        })
+    }
+    pub fn reply(self, accepted: bool) -> [u8; 24] {
+        let mut b = [0; 24];
+        b[..8].copy_from_slice(&Self::MAGIC.to_le_bytes());
+        b[8..16].copy_from_slice(&self.sequence.to_le_bytes());
+        b[16..].copy_from_slice(&u64::from(accepted).to_le_bytes());
+        b
+    }
+    pub fn accepted(self, b: &[u8]) -> bool {
+        b == self.reply(true)
+    }
+}
+pub fn valid_name(bytes: &[u8]) -> bool {
+    !bytes.is_empty()
+        && bytes.len() <= 64
+        && bytes != b"."
+        && bytes != b".."
+        && core::str::from_utf8(bytes).is_ok_and(|s| {
+            !s.chars()
+                .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':'))
+                && !s.ends_with([' ', '.'])
+        })
+}
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -43,6 +110,13 @@ impl Request {
             && self.incarnation != 0
             && self.length <= CAPACITY as u64
             && match self.operation {
+                CREATE => {
+                    self.token == 0
+                        && self.rights == p::SELECTED_FILE_WRITE
+                        && self.offset == 0
+                        && valid_name(&self.bytes[..self.length as usize])
+                        && self.bytes[self.length as usize..].iter().all(|b| *b == 0)
+                }
                 OPEN => {
                     self.token == 0
                         && self.rights != 0
@@ -98,7 +172,7 @@ impl Reply {
             && self.version == 1
             && self.sequence == r.sequence
             && self.status <= 6
-            && (r.operation == OPEN || self.token == r.token)
+            && (matches!(r.operation, OPEN | CREATE) || self.token == r.token)
             && self.length <= CAPACITY as u64
             && self.bytes[self.length as usize..].iter().all(|b| *b == 0)
             && (self.status == 0 || self.length == 0)

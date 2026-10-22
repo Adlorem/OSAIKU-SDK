@@ -29,6 +29,9 @@ pub mod operation {
     pub const REPORT_CHUNK: u64 = 20;
     pub const REPORT_COMMIT: u64 = 21;
     pub const REPORT_ABORT: u64 = 22;
+    /// Lifecycle host only: grant READ of an exact file to the target window.
+    /// Reply.content contains an opaque picker token (8 bytes), never file data.
+    pub const OPEN_SCOPE: u64 = 23;
 }
 pub mod status {
     pub const OK: u64 = 0;
@@ -61,7 +64,8 @@ pub const fn private_operation(operation: u64) -> bool {
 pub const fn broker_operation(operation: u64) -> bool {
     matches!(
         operation,
-        operation::LIST
+        operation::OPEN_SCOPE
+            | operation::LIST
             | operation::LIST_V2
             | operation::OPEN
             | operation::CREATE_DIRECTORY

@@ -336,6 +336,57 @@ Request/Reply sizes are 4168/4136 bytes; initialize with EMPTY. Failed replies
 contain no file data. Ordinary apps never pass raw paths, object IDs or another
 process's Context to this protocol.
 
+CREATE (6) uses the same window binding and requires exactly WRITE. Its payload
+is one UTF-8 filename of 1–64 bytes, without path separators, controls, `:`,
+`.`/`..`, or a trailing space/dot. In Files, navigate to the destination folder,
+choose **Select file for application**, and approve the protected create dialog.
+The scope binds that folder's mount/object/version and the exact filename.
+REPLACE publishes the complete new file atomically, only if the name is absent;
+it never overwrites a collision or first exposes an empty placeholder. Success
+turns this scope into a version-bound file WRITE scope. A refused, stale or
+uncertain operation requires an explicit user retry; preserve the draft.
+
+`picker::OpenScope` is a 40-byte authenticated host message delivering a READ
+scope for a file opened in Files. Accept it only through `hosted::host_message`,
+for the exact window/incarnation and a fresh sequence, while the document can
+safely accept replacement. Return its correlated 24-byte acknowledgement. The
+token still has to pass STATUS/READ; receiving bytes does not confer authority.
+Release it with CANCEL after the read. The migrated Document uses this path,
+public picker transactions, and app-owned text/save state. Its current text
+limit is 256 UTF-8 bytes; overlong input is refused without truncation.
+
+## Protected browser client and metadata
+
+File Manager owns its view templates, labels, menu interpretation, double-click
+state and navigation. `file_manager`, `file_browser`, `file_export`,
+`directory_summary`, `threads` and the native `desktop` client live in the SDK.
+These definitions do not grant the protected File Manager profile to an ordinary
+signed package. The OS retains storage queues, object/version validation, copy
+transactions, durability, picker consent and protected recovery/update profiles.
+
+Each browser publication includes a `file_broker::Map` of element IDs to typed
+operations and object versions. This map declares possible operations; it is not
+authority. The OS validates it against the submitted inventory, then issues a
+two-second, single-use `Receipt` only for actual input on that presented window.
+TAKE/EXECUTE bind caller, window, incarnation, presentation revision/epoch,
+token, operation and object/version. Stale or replayed commands fail. Pointer
+gesture discontinuity is reported as an epoch; the app decides click behavior.
+No menu label or private OS template is part of this authorization protocol.
+EXECUTE returns LOCAL (0) for an app-owned state transition and HANDLED (1)
+when server work has completed or been queued. Do not repeat HANDLED operations
+locally; in particular, USB directory IDs must not become native-disk requests.
+The OS verifier's `--example file-manager --files-menu-probe` rebuilds a changed
+menu outside the OS checkout using the SDK alone.
+
+`window_status` and `status_client` provide the bounded metadata exchange used
+by the Assistant: exact presentation identity, text length and save state only.
+Register the bounded handler, publish after submission, and invalidate it on
+model changes until the next submission. Never send document text or a content
+hash in this response. Physical input and the OS grant select the target;
+registration alone does not authorize queries. Applications using a custom
+desktop loop must explicitly answer shutdown preparation after checking their
+pending work; generic IPC/yield wrappers never silently acknowledge readiness.
+
 Repository browsing and HTTPS download remain explicitly dependent on Stage 33
 network transport, trusted time and certificate/DNS destination policy (A5-N).
 They are not provided by a parser or this local disk/USB workflow. Physical
