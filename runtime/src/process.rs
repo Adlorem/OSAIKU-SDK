@@ -63,3 +63,21 @@ impl ProcessEndpoint {
     }
 }
 pub mod observe;
+
+pub const FIXED_SERVICE_COUNT: usize = 8;
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProcessState {
+    Empty = 0,
+    Ready = 1,
+    Running = 2,
+    Waiting = 3,
+    Faulted = 4,
+    Stopped = 5,
+    Exhausted = 6,
+    Retired = 7,
+    Runnable = 8,
+    BlockedOnIpc = 9,
+    BlockedOnReply = 10,
+    BlockedOnStorage = 11,
+}

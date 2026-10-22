@@ -4,7 +4,7 @@ use crate::{abi::SYSCALL_OK, process::*, surface::*, window::UiDocumentWindowPre
 impl WindowSession {
     /// Resolve a render request against this retained session, then fetch the
     /// current epoch and armed frame offer (at most two transport calls).
-    /// `app_id` and `owner` come from the admitted image and process_self;
+    /// `app_id` and `owner` come from the kernel launch context;
     /// authenticate the IPC sender before calling. No allocation, reservation,
     /// retry, session mutation or broker completion occurs here. A subsequent
     /// BEGIN_FRAME/SEAL revalidates any intervening geometry/request changes.

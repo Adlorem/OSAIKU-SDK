@@ -20,7 +20,6 @@ struct Counter {
 impl WindowApplication for Counter {
     // Current experimental deployment uses the OS's admitted System Update
     // image slot in a separate demo ESP. It does not register/grant privileges.
-    const APP_ID: u64 = 7;
     fn new() -> Self {
         Self {
             count: 0,

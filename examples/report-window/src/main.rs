@@ -21,7 +21,6 @@ struct Report {
 impl WindowApplication for Report {
     // Like window-hello, deployment uses the admitted demo image slot in a
     // separate ESP. This example registers no app and grants no update access.
-    const APP_ID: u64 = 7;
     fn new() -> Self {
         let owner = osaiku_runtime::process_self().unwrap().encode();
         Self {

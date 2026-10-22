@@ -25,8 +25,8 @@ struct State<A> {
     next_observation: u64,
 }
 
-/// Run the current fixed-service window-host protocol. The image must already
-/// be admitted for A::APP_ID; this cannot register a program or grant authority.
+/// Run the window-host protocol using the kernel-issued launch context.
+/// The image must already be admitted; this cannot grant authority.
 /// One process owns one session. All IPC senders and submitted status records
 /// are checked; view preparation/refusal preserves the last accepted picture.
 /// Protocol/transport corruption exits the process for kernel reclamation.
@@ -40,13 +40,17 @@ pub fn run_with_surfaces<A: WindowApplication>() -> ! {
 }
 
 fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
-    if A::APP_ID == 0
-        || RUNNING.swap(true, Ordering::AcqRel)
+    if RUNNING.swap(true, Ordering::AcqRel)
         || core::mem::size_of::<State<A>>() > PROCESS_SESSION_MEMORY_PAGE_SIZE as usize
     {
         process_exit(40);
     }
     let owner = process_self().unwrap_or_else(|_| process_exit(41));
+    let context = crate::launch::current().unwrap_or_else(|_| process_exit(41));
+    if !context.valid_for(owner) {
+        process_exit(41);
+    }
+    let app_id = context.application;
     let mut session: Option<SessionPage<State<A>>> = None;
     let mut memory_id = 0;
     let mut teardown_id = 0;
@@ -136,7 +140,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                     .as_mut()
                     .unwrap_or_else(|| process_exit(44))
                     .value_mut();
-                if request.expected_app_id != A::APP_ID || !state.window.matches_present(&request) {
+                if request.expected_app_id != app_id || !state.window.matches_present(&request) {
                     process_exit(44);
                 }
                 // SAFETY: run's process-wide guard uniquely owns WIRE forever.
@@ -144,7 +148,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 let len = state
                     .app
                     .render(wire)
-                    .map_err(|error| log_present_failure(A::APP_ID, "render", &error))
+                    .map_err(|error| log_present_failure(app_id, "render", &error))
                     .ok()
                     .filter(|len| *len > 0 && *len <= wire.len());
                 let sealed = if SURFACES {
@@ -153,7 +157,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                             .window
                             .frame_offer_with(
                                 &request,
-                                A::APP_ID,
+                                app_id,
                                 owner,
                                 |req, bytes, receipt| unsafe {
                                     crate::surface::transition(req, bytes, receipt)
@@ -179,7 +183,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                                 )
                             });
                         if let Err(error) = &result {
-                            log_present_failure(A::APP_ID, "raster", error);
+                            log_present_failure(app_id, "raster", error);
                         }
                         match result {
                             Ok(handle) => Some(handle),
@@ -213,7 +217,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                             }
                         }
                         if result != UI_DOCUMENT_WINDOW_CHANNEL_STATUS_OK as isize {
-                            log_present_failure(A::APP_ID, "submit", &result);
+                            log_present_failure(app_id, "submit", &result);
                         }
                         (result == UI_DOCUMENT_WINDOW_CHANNEL_STATUS_OK as isize).then_some(())
                     })
@@ -261,7 +265,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 let notice = WindowSessionTeardownNotice::decode(payload);
                 let validated = validate_window_session_teardown_notice(
                     notice.as_ref(),
-                    A::APP_ID,
+                    app_id,
                     u64::from(owner.process_id.0),
                     teardown_id,
                 );
@@ -342,7 +346,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                                 let response = window.opened_reply(&command);
                                 let value = State {
                                     window,
-                                    app: A::new(),
+                                    app: A::launched(&context),
                                     current: osaiku_ui::Action::EMPTY.target,
                                     previous: osaiku_ui::Action::EMPTY.target,
                                     dirty: false,

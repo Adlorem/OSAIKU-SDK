@@ -4,8 +4,8 @@
 private OS dependencies. It is the canonical source for the x86_64 interrupt
 calling convention, `ProcessId`/`ProcessEndpoint`, native error codes and the
 initial syscall-number subset, session memory metadata, window broker status and UI event transport.
-Its only dependency is the public sibling `osaiku-ui` crate, without compiler
-features. The OS ABI reexports these contracts; its
+Its dependencies are the public sibling `osaiku-ui` and `osaiku-package` crates,
+without UI compiler features. The OS ABI reexports these contracts; its
 `user_rt` delegates traps to this implementation. The OS still owns admission,
 pointer validation, permissions, scheduling and lifecycle policy.
 
@@ -18,8 +18,11 @@ The smaller four-call native example remains a link/ABI example without a window
 ## Hosted window application
 
 Implement `hosted::WindowApplication` and call `hosted::run::<App>()` from
-`_start` on the native target. The trait provides an admitted `APP_ID`, initial
-state, event handling, rendering into a bounded output slice and an explicit
+`_start` on the native target. The runtime reads `launch::current()` from the
+kernel; applications do not declare a numeric `APP_ID`. The optional
+`launched(&launch::Context)` constructor receives package, release, policy epoch,
+permissions and exact process endpoint. These descriptive bytes do not transfer
+authority. Window identities arrive separately via `submitted`. The trait provides initial state, event handling, rendering into a bounded output slice and an explicit
 shutdown-readiness callback. One process owns one window session. State plus
 host metadata must fit one 4 KiB session page; an oversized type is refused.
 
@@ -812,3 +815,27 @@ upstream notice in `ui/licenses/DejaVu.txt`. The OS glyph API is a compatibility
 facade, not a second atlas. Target and linker inputs are project-owned
 build configuration. This does not constitute an audit or release of unrelated
 private OS modules. Unknown UI wire majors remain independently rejected.
+
+
+## Launch policy and public services
+
+`launch::Context` version 1 is a 256-byte, integer/byte-only record returned by
+syscall 394. `launch::current()` correlates its endpoint with `process_self()`.
+The source explicitly distinguishes a bootstrap image (no signed package digest)
+from a package (publisher, package identifier, release, SHA-256 and policy epoch).
+Application numbers are kernel handles; numbers starting at 65536 are dynamic.
+Neither this record, a copied number, nor a manifest request conveys authority.
+
+The base application profile has private memory, its own surfaces/input and
+lifecycle/input broker communication. Public permission bits are independent of
+reserved system roles. Selected-file read/write apply only to the object already
+bound by the broker to the application's exact live window and version; they do
+not allow names, directory enumeration or arbitrary object IDs. Private package
+data and creation of new picker grants depend on the OS package owner/picker.
+
+`appearance::exchange` checks request shape, bounded rows and correlated replies;
+DesktopAppearanceWrite authorizes the settings service, not the legacy USB image
+gallery. `metrics::read` checks the canonical bounded view and requested sample/page;
+SystemMetricsRead authorizes observation, never process control. The OS ABI reexports
+these exact definitions. Hosts must advertise implemented protocol versions before
+launch; a library version is not a substitute for compatibility negotiation.

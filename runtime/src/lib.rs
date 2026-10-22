@@ -6,6 +6,7 @@
 //! builds expose contracts for tooling/tests; they must not invoke raw traps.
 pub mod abi;
 pub mod agent;
+pub mod appearance;
 pub mod application;
 pub mod assistant;
 pub mod compat;
@@ -13,7 +14,9 @@ pub mod context;
 pub mod files;
 pub mod hosted;
 pub mod ipc;
+pub mod launch;
 pub mod lifecycle;
+pub mod metrics;
 pub mod model_manager;
 pub use osaiku_package::compatibility as package_compatibility;
 pub mod packaged;

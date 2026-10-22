@@ -17,7 +17,7 @@ directory override is active. It is an OSAIKU executable, not a host program.
 No OS checkout is needed to compile it.
 
 The experimental host currently admits fixed application images. This example
-uses app ID 7 and can be deployed into the **System Update image slot in a
+reads its launch identity from the kernel and can be deployed into the **System Update image slot in a
 separate disposable demo ESP**, replacing `EFI/BOOT/SYSUPD.ELF` there. Launch it
 with that slot's existing shelf icon. The admitted app identity remains slot 7; window chrome is supplied by the OS.
 This demonstrates the public window runtime, not registration of a new package.
