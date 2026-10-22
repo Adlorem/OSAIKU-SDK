@@ -18,6 +18,7 @@ pub mod launch;
 pub mod lifecycle;
 pub mod metrics;
 pub mod model_manager;
+pub mod packages;
 pub use osaiku_package::compatibility as package_compatibility;
 pub mod packaged;
 pub mod process;

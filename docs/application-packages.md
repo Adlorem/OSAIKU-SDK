@@ -225,3 +225,19 @@ truncation, overflow, canonical metadata, source corruption, streaming failure,
 freshness, equivocation, rollback and exact entry binding. They neither run UI
 automation nor execute the test ELF header fixture. Real application builds are
 separate evidence; package success alone does not prove runtime installation.
+
+## Installed catalog observations (A5, partial)
+
+`osaiku_runtime::packages` provides read-only syscall 395. `STATUS` obtains the
+current mount, catalog revision and policy epoch; `ITEM` reads one of at most
+32 active entries against that exact snapshot. Restart enumeration on `STALE`.
+`OUTCOME` looks up the durable operation ID for the calling process generation;
+a reused PID does not inherit another caller's receipt. Requests are 80 bytes,
+replies 288 bytes; `read_with` rejects malformed or uncorrelated replies.
+
+The kernel lazily loads the existing authenticated store on its storage pump.
+A missing or invalid policy/catalog is unavailable, never implicitly seeded
+with a test key. Installation, trust decisions, launch, cancellation and private
+data access are not operations in this observation protocol. Their protected
+runtime UI and service integration are still pending in A5; catalog success is
+not evidence that runtime installation is complete.
