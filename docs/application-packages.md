@@ -226,7 +226,7 @@ freshness, equivocation, rollback and exact entry binding. They neither run UI
 automation nor execute the test ELF header fixture. Real application builds are
 separate evidence; package success alone does not prove runtime installation.
 
-## Installed catalog observations (A5, partial)
+## Installed catalog observations (A5)
 
 `osaiku_runtime::packages` provides read-only syscall 395. `STATUS` obtains the
 current mount, catalog revision and policy epoch; `ITEM` reads one of at most
@@ -238,10 +238,8 @@ replies 288 bytes; `read_with` rejects malformed or uncorrelated replies.
 The kernel lazily loads the existing authenticated store on its storage pump.
 A missing or invalid policy/catalog is unavailable, never implicitly seeded
 with a test key. Installation, trust decisions, launch, cancellation and private
-data access are not operations in this observation protocol. Their protected
-runtime UI and service integration are still pending in A5; catalog success is
-not evidence that runtime installation is complete. Private data has a separate
-client described below. `OUTCOME` also recognizes `DATA_PURGED` (6), meaning a
+data access are not operations in this observation protocol. The protected runtime UI and broker protocol below perform those operations.
+Private data has a separate client described below. `OUTCOME` also recognizes `DATA_PURGED` (6), meaning a
 separately approved data purge was committed; pinned running revisions can
 delay physical reclamation.
 
@@ -270,3 +268,73 @@ separate purge stops future installations from inheriting that realm, while
 running consumers keep their pinned realm until retirement. A durable policy
 revocation still denies further access immediately. This client does not
 authorize installation, purge, selected-file access or publisher trust.
+
+## Runtime local installation and protected consent (A5)
+
+On a mounted authenticated OSAIFS volume, open a publisher's raw 32-byte
+Ed25519 **public** key with the `.osakey` extension in File Manager. Compare
+both halves of the SHA-256 fingerprint in the protected system panel before
+choosing **Zaufaj temu kluczowi**. This authorizes the Application domain only.
+It explicitly provisions the first policy or adds a key at the next policy
+epoch; existing domain records and revocation tombstones remain. Opening a key
+alone writes nothing. The package's signature does not contain a trusted key,
+and the host tool's trust decision does not approve runtime installation.
+
+Open `.osapp` from native disk or a selected USB FAT directory. The kernel
+revalidates the exact row/object/version or attachment/directory entry, streams
+and verifies the complete package, then shows publisher, both digest halves,
+release, requested rights, policy/catalog/operation generations, package size
+and store quota. Confirm installation/update or explicitly choose rollback.
+An incompatible package is refused. The transaction rereads and verifies the
+source; replacement, disconnection, changed policy and stale catalog consent
+cannot publish a different package. No scripts execute and installation never
+automatically starts the program. **Uruchom** is a separate protected decision.
+
+The **Aplikacje** sidebar entry enumerates active applications and retained data
+with Previous/Next controls, running-instance count and required-component
+status. Uninstall preserves data; selecting retained data exposes a separate
+purge confirmation. Refresh reconciles pending durable receipts and performs
+bounded collection; live and required revisions remain protected. An uncertain
+commit is reported as an error and is never blindly retried. Recovery from a
+torn filesystem root still depends on A8 recovery work.
+
+`osaiku_runtime::package_service` (syscall 397) is restricted to the actual
+`serviced`/`initd` endpoints. Request/Reply sizes are 32/64 bytes. `POLL`,
+`EXECUTE`, `STATUS` and `CANCEL` carry only a sequence and opaque kernel token,
+never consent, a key, a path or permissions. Phases are 0 idle, 1 offered,
+2 executing, 3 committed/completed, 4 cancelled, 5 failed. Replies correlate
+sequence/token and bounded progress; `serviced` redeems storage jobs and only
+`initd` redeems a launch. Both poll between normal service transactions.
+One kernel-owned job retains approval and outcome across a service restart;
+repeated EXECUTE cannot repeat an admitted or completed operation. On reboot,
+the authenticated Store reconciles Pending receipts as Interrupted, without
+replaying installation. Pins and private data belong to the kernel resident
+owner until exact process retirement.
+
+## Protected file picker (A5)
+
+`osaiku_runtime::picker`, syscall 398, implements compatibility protocol
+`SELECTED_FILES` (3), version 1.0. OPEN names the caller's exact live window,
+incarnation and requested selected-file READ/WRITE rights. Use a new nonzero
+sequence for each new chooser; repeating the same OPEN returns the same token.
+STATUS polls that token. The user selects **Wybierz plik dla aplikacji** in File
+Manager, reviews the target application's identity and rights, proceeds to the
+file list, opens a file, then approves **Udostępnij ten plik**. An OPEN request,
+manifest right or visible file row alone grants no access.
+
+The token binds actual endpoint, launch context/policy, window incarnation and
+exact native object/version or USB attachment/entry. READ returns up to 4096
+bytes at an offset. REPLACE atomically replaces a native file with 0–4096 bytes
+and advances only that scope's expected version. USB scopes are read-only;
+requesting WRITE for USB is refused. REPLACE is a bounded small-file operation,
+not append or chunked overwrite. CANCEL releases a pending request or scope.
+Closing the window, process reuse, changed authority/policy and detached media
+invalidate access. There are at most 64 scopes and one pending chooser.
+Request/Reply sizes are 4168/4136 bytes; initialize with EMPTY. Failed replies
+contain no file data. Ordinary apps never pass raw paths, object IDs or another
+process's Context to this protocol.
+
+Repository browsing and HTTPS download remain explicitly dependent on Stage 33
+network transport, trusted time and certificate/DNS destination policy (A5-N).
+They are not provided by a parser or this local disk/USB workflow. Physical
+startup/latency/RAM qualification remains a separate acceptance requirement.
