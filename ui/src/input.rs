@@ -157,6 +157,9 @@ pub enum Key {
     Backspace,
     /// Escape: closes the open menu (activates its popup's action).
     Cancel,
+    /// A platform command resolves to one enabled, visible action in the
+    /// presented scope. It does not bypass the ordinary owner event queue.
+    Shortcut(u32),
 }
 
 /// Navigation, hit testing and semantics share the presented layout. Scroll
@@ -180,6 +183,35 @@ pub fn key_event(
         ..Event::EMPTY
     };
     match key {
+        Key::Shortcut(action) => {
+            if action == 0 {
+                return None;
+            }
+            let mut candidates =
+                view.nodes[..view.len as usize]
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, node)| {
+                        let placed = &layout.nodes[*i];
+                        let visible = placed.bounds.intersect(placed.clip);
+                        node.action == action
+                            && !placed.hidden
+                            && !placed.disabled
+                            && visible.width != 0
+                            && visible.height != 0
+                            && modal.is_none_or(|m| {
+                                *i != m && crate::layout::Layout::popup_of(view, *i) == Some(m)
+                            })
+                    });
+            let (_, node) = candidates.next()?;
+            if candidates.next().is_some() {
+                // Ambiguous commands must not select an arbitrary recipient.
+                return None;
+            }
+            event.element = node.id;
+            event.kind = ACTIVATE;
+            event.action = action;
+        }
         Key::Next | Key::Previous => {
             let index = layout.focus_next(view, focused, matches!(key, Key::Previous))?;
             event.element = view.nodes[index].id;
