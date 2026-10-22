@@ -202,6 +202,15 @@ transactions and physical installation remain A8/A7.
 
 ## Verification and evidence
 
+`application::stream::Verifier` authenticates the envelope and bounded manifest
+in its constructor. Feed only the remaining bytes, in order, with nonempty
+chunks of at most 64 KiB, then consume it with `finish`. It checks the same
+component hashes, zero padding, ELF target header and raw icon shape as
+`Package::parse`, without allocating an entire package. A failed push is
+terminal; truncated input cannot yield a digest. Policy must be checked again
+at publication and launch. Segment/BSS/W^X validation remains the responsibility
+of the common image loader; this verifier does not grant execution authority.
+
 ```text
 cargo test --locked -p osaiku-package
 python tools/test_package.py target/debug/examples/package-check -v

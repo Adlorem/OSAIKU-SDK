@@ -1,6 +1,7 @@
 //! Canonical application manifest and component layout. Parsing is inspection;
 //! only `verify` additionally proves publisher policy and exact content bytes.
 use crate::*;
+pub mod stream;
 pub const MANIFEST_BYTES: usize = 512;
 pub const DESCRIPTOR_BYTES: usize = 112;
 pub const MAX_METADATA_BYTES: usize = 16 * 1024;
@@ -310,6 +311,9 @@ fn elf_header(bytes: &[u8]) -> Result<(), Error> {
     }
 }
 fn icon(bytes: &[u8]) -> Result<(), Error> {
+    icon_prefix(bytes, bytes.len() as u64)
+}
+fn icon_prefix(bytes: &[u8], length: u64) -> Result<(), Error> {
     if bytes.len() < 8 || &bytes[..4] != b"RGBA" {
         return Err(Error::Icon);
     }
@@ -317,7 +321,7 @@ fn icon(bytes: &[u8]) -> Result<(), Error> {
     let height = usize::from(u16_at(bytes, 6));
     if !(1..=256).contains(&width)
         || !(1..=256).contains(&height)
-        || bytes.len() != 8 + width * height * 4
+        || length != (8 + width * height * 4) as u64
     {
         Err(Error::Icon)
     } else {

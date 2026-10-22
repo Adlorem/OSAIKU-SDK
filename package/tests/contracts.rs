@@ -515,3 +515,107 @@ fn base_container_metadata_is_bounded_without_application_id_or_filename_tables(
         assert!(system::BaseMetadata::parse(&bytes[..len], 160).is_err());
     }
 }
+
+#[test]
+fn streaming_application_matches_contiguous_verification_at_every_split() {
+    let b = app();
+    let keys = [trust(Domain::Application)];
+    for chunk in 1..=65 {
+        let mut v = application::stream::Verifier::new(
+            &b[..192],
+            &b[192..848],
+            b.len() as u64,
+            &policy(&keys),
+        )
+        .unwrap();
+        for bytes in b[848..].chunks(chunk) {
+            v.push(bytes).unwrap();
+        }
+        assert_eq!(
+            v.finish().unwrap(),
+            Package::parse(&b)
+                .unwrap()
+                .verify(&policy(&keys))
+                .unwrap()
+                .sha256()
+        );
+    }
+}
+#[test]
+fn streaming_errors_poison_state_and_never_produce_a_verified_digest() {
+    let b = app();
+    let keys = [trust(Domain::Application)];
+    for offset in 848..b.len() {
+        let mut bad = b.clone();
+        bad[offset] ^= 1;
+        let mut v = application::stream::Verifier::new(
+            &b[..192],
+            &b[192..848],
+            b.len() as u64,
+            &policy(&keys),
+        )
+        .unwrap();
+        assert!(v.push(&bad[848..]).is_err());
+        assert_eq!(v.push(&b[848..]), Err(Error::Failed));
+        assert_eq!(v.finish(), Err(Error::Failed));
+    }
+    let mut v =
+        application::stream::Verifier::new(&b[..192], &b[192..848], b.len() as u64, &policy(&keys))
+            .unwrap();
+    v.push(&b[848..900]).unwrap();
+    assert_eq!(v.finish(), Err(Error::Incomplete));
+    let mut v =
+        application::stream::Verifier::new(&b[..192], &b[192..848], b.len() as u64, &policy(&keys))
+            .unwrap();
+    assert_eq!(v.push(&vec![0; CHUNK_BYTES + 1]), Err(Error::Chunk));
+    assert_eq!(v.finish(), Err(Error::Failed));
+}
+
+#[test]
+fn streaming_checks_resource_padding_hash_and_icon_shape_across_chunks() {
+    let original = app();
+    let mut p = original[192..848].to_vec();
+    p.resize(768, 0);
+    put32(&mut p, 12, 768);
+    put16(&mut p, 62, 2);
+    put64(&mut p, 552, 960);
+    put64(&mut p, 560, 65);
+    let mut elf = original[848..].to_vec();
+    elf.push(0);
+    p[568..600].copy_from_slice(&digest(&elf));
+    let icon = b"RGBA\x01\x00\x01\x00\xff\xff\xff\xff";
+    put16(&mut p, 656, 3);
+    put64(&mut p, 664, 1032);
+    put64(&mut p, 672, icon.len() as u64);
+    p[680..712].copy_from_slice(&digest(icon));
+    string(&mut p, 712, "icon");
+    p.extend(elf);
+    p.extend([0; 7]);
+    p.extend(icon);
+    let keys = [trust(Domain::Application)];
+    for variant in 0..3 {
+        let mut payload = p.clone();
+        if variant == 1 {
+            payload[833] = 1;
+        } // alignment padding
+        if variant == 2 {
+            payload[844] = 0;
+            let sha = digest(&payload[840..]);
+            payload[680..712].copy_from_slice(&sha);
+        } // zero icon width
+        let b = signed(Domain::Application, &payload, 2);
+        for chunk in [1, 7, 64, 65, 72, 83, CHUNK_BYTES] {
+            let mut v = application::stream::Verifier::new(
+                &b[..192],
+                &b[192..960],
+                b.len() as u64,
+                &policy(&keys),
+            )
+            .unwrap();
+            let pushed = b[960..].chunks(chunk).try_for_each(|part| v.push(part));
+            let result = pushed.and_then(|_| v.finish());
+            assert_eq!(result.is_ok(), variant == 0);
+            assert_eq!(Package::parse(&b).is_ok(), variant == 0);
+        }
+    }
+}
