@@ -7,6 +7,8 @@ pub const FIRST_DYNAMIC_APPLICATION: u64 = 65536;
 pub const VERSION: u64 = 1;
 pub const BOOT_IMAGE: u64 = 1;
 pub const PACKAGE: u64 = 2;
+/// Ordinary package authenticated by the immutable running system bank.
+pub const BANK_PACKAGE: u64 = 3;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -51,7 +53,7 @@ impl Context {
                         && self.publisher == [0; 32]
                         && self.digest == [0; 32]
                 }
-                PACKAGE => {
+                PACKAGE | BANK_PACKAGE => {
                     self.release != 0
                         && self.policy_epoch != 0
                         && self.publisher != [0; 32]

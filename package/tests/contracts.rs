@@ -416,6 +416,108 @@ fn system_release_pair_uses_separate_trust_and_rejects_old_handoff() {
     put32(&mut p, 8, 6);
     assert!(system::Release::parse(&signed(Domain::System, &p, 2)).is_err());
 }
+
+#[test]
+fn base_object_authenticates_components_padding_and_refuses_every_truncation() {
+    let mut base = vec![0; 171];
+    base[..8].copy_from_slice(b"OSABASE1");
+    put32(&mut base, 8, 1);
+    put32(&mut base, 12, 2);
+    put64(&mut base, 16, 171);
+    for (index, offset) in [160usize, 168].into_iter().enumerate() {
+        let at = 32 + index * 64;
+        put32(&mut base, at, index as u32 + 1);
+        put64(&mut base, at + 8, offset as u64);
+        put64(&mut base, at + 16, 3);
+        base[at + 24..at + 56].copy_from_slice(&digest(b"ELF"));
+        put32(&mut base, at + 56, 1);
+        base[offset..offset + 3].copy_from_slice(b"ELF");
+    }
+    let parsed = system::BaseMetadata::validate_object(&base).unwrap();
+    assert_eq!(parsed.entries().count(), 2);
+    for end in 0..base.len() {
+        assert!(system::BaseMetadata::validate_object(&base[..end]).is_err());
+    }
+    for at in [28, 36, 92, 156, 160, 164, 168] {
+        let mut corrupt = base.clone();
+        corrupt[at] ^= 1;
+        assert!(
+            system::BaseMetadata::validate_object(&corrupt).is_err(),
+            "offset {at}"
+        );
+    }
+    let mut overflow = base.clone();
+    put64(&mut overflow, 40, u64::MAX);
+    assert!(system::BaseMetadata::validate_object(&overflow).is_err());
+}
+
+#[test]
+fn signed_release_binds_exact_kernel_base_and_service_abi() {
+    let kernel = b"kernel";
+    let base = b"base";
+    let mut descriptor = vec![0; 128];
+    put64(&mut descriptor, 0, 7);
+    put32(&mut descriptor, 8, 7);
+    put32(&mut descriptor, 12, 1);
+    put64(&mut descriptor, 16, 1);
+    put64(&mut descriptor, 24, kernel.len() as u64);
+    descriptor[32..64].copy_from_slice(&digest(kernel));
+    put64(&mut descriptor, 64, base.len() as u64);
+    descriptor[72..104].copy_from_slice(&digest(base));
+    let bytes = signed(Domain::System, &descriptor, 2);
+    let release = system::Release::parse(&bytes).unwrap();
+    release.verify(&policy(&[trust(Domain::System)])).unwrap();
+    release.verify_objects(kernel, base).unwrap();
+    assert_eq!(release.generation(), 7);
+    assert_eq!(release.verify_objects(b"Kernel", base), Err(Error::Digest));
+    assert_eq!(release.verify_objects(kernel, b"Base"), Err(Error::Digest));
+    assert_eq!(release.verify_objects(kernel, b"base!"), Err(Error::Length));
+    put64(&mut descriptor, 16, 2);
+    let bytes = signed(Domain::System, &descriptor, 2);
+    assert_eq!(
+        system::Release::parse(&bytes)
+            .unwrap()
+            .verify_objects(kernel, base),
+        Err(Error::Compatibility)
+    );
+}
+
+#[test]
+fn disk_catalog_binds_ordinary_packages_and_rejects_bad_ranges_without_panicking() {
+    let content = app();
+    let metadata_len =
+        HEADER_BYTES + u32::from_le_bytes(content[204..208].try_into().unwrap()) as usize;
+    let mut bytes = vec![0; 128 + metadata_len];
+    bytes[..8].copy_from_slice(b"OSACAT01");
+    put32(&mut bytes, 8, 1);
+    put32(&mut bytes, 12, 1);
+    put64(&mut bytes, 16, content.len() as u64);
+    let size = bytes.len() as u64;
+    put64(&mut bytes, 24, size);
+    bytes[32..64].copy_from_slice(&digest(&content));
+    put64(&mut bytes, 72, content.len() as u64);
+    bytes[80..112].copy_from_slice(&digest(&content));
+    put32(&mut bytes, 112, 128);
+    put32(&mut bytes, 116, metadata_len as u32);
+    bytes[128..].copy_from_slice(&content[..metadata_len]);
+    let catalog = system::catalog::Catalog::parse(&bytes).unwrap();
+    assert_eq!(catalog.entries().next().unwrap().digest(), digest(&content));
+    assert_eq!(
+        catalog.entries().next().unwrap().metadata(),
+        &content[..metadata_len]
+    );
+    for end in 0..bytes.len() {
+        assert!(system::catalog::Catalog::parse(&bytes[..end]).is_err());
+    }
+    for at in [12, 16, 24, 64, 72, 112, 116, 120] {
+        let mut corrupt = bytes.clone();
+        corrupt[at..at + 4].fill(255);
+        assert!(
+            system::catalog::Catalog::parse(&corrupt).is_err(),
+            "offset {at}"
+        );
+    }
+}
 #[test]
 fn arbitrary_input_and_near_overflow_lengths_do_not_panic() {
     let mut state = 0x1234_5678u32;

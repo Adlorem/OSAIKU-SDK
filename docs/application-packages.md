@@ -446,3 +446,35 @@ at `apps/system_manager/package.toml` in OSAIKU. The OS verification command is
 `test-installed-sdk-apps.py --a7` also admits its real ELF through the signed
 package store and production loader's page validation. These host checks do
 not qualify CPU execution, fresh installation, or physical hardware acceptance.
+
+
+## Revision-7 system distribution
+
+The OS release builder emits `OSAIKERN.ELF`, `OSAIBASE.PKG`, `RELEASE.SIG`
+and `APPS.PKG` beside `BOOTX64.EFI`. `OSASYS01` authenticates the exact kernel
+and base pair, handoff revision 7 and service ABI 1. `OSABASE1` contains a fixed
+recovery profile and role 32 catalog metadata; only the kernel interprets roles.
+`OSACAT01` carries bounded ordinary package metadata and hashes. The executable
+bodies remain in `APPS.PKG` on USB or the selected installed bank and are verified
+again when launched. A package name cannot grant a protected service role.
+
+The installer and system updater publish the complete catalog with the bank.
+Both retained banks keep their own application versions. These distribution
+versions are pinned to the system release; the ordinary mutable application
+catalog remains independent. Launch contexts use `BANK_PACKAGE` for a pinned
+release version and `PACKAGE` for a mutable installation, both ordinary identities.
+User package policy changes revoke mutable installations, not the authenticated
+recovery distribution. Pinned versions appear in File Manager's Applications
+catalog and are marked required; ordinary user installations retain the existing
+update, rollback and uninstall flow. Live USB does not require NVMe or a mutable
+application store to reach the installer and recovery tools.
+
+Validate an assembled release without firmware using:
+
+```text
+cargo run --manifest-path sdk/Cargo.toml -p osaiku-package --example system-release-check -- target/esp/EFI/BOOT target/system-release-public.bin
+```
+
+The signing seed stays outside the checkout. This is software release
+verification against a compiled public key, not a claim of hardware Secure Boot.
+Old bank manifests and revision-6 handoffs are unsupported; use a fresh install.
