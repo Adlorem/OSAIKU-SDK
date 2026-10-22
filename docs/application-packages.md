@@ -376,3 +376,22 @@ builds both, creates **test-only** signed fixtures and exercises actual OSAIFS
 installation, image authentication and the shared loader's page recipes. The
 fixture uses a public test seed; it is not a production publisher or a physical
 execution qualification. Use your own publisher key for actual installation.
+
+
+## System monitor client
+
+The migrated OSAIKU System Manager builds with the public SDK only and requests
+`SYSTEM_METRICS_READ` (8). Use `metrics::read(None)` for the current bounded
+sample and `metrics::read(Some((page, sample)))` for a page of that exact sample.
+`metrics::select(0, 0)` selects the overview; `(0, 1)` selects processors.
+`select(1, 1)` and `select(1, u64::MAX)` move the provider page forward/back.
+Other selections fail before crossing the syscall boundary. These operations
+never grant process control or make all of the application's UI text public.
+
+The application owns measurement history, row identities, scrolling and labels;
+`hosted::run` owns the common session/presentation transport. Its manifest lives
+at `apps/system_manager/package.toml` in OSAIKU. The OS verification command is
+`tools/ci/test-sdk-native.py --example system-manager --output OUTPUT`;
+`test-installed-sdk-apps.py --a7` also admits its real ELF through the signed
+package store and production loader's page validation. These host checks do
+not qualify CPU execution, fresh installation, or physical hardware acceptance.

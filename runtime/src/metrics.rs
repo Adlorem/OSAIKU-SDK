@@ -273,3 +273,24 @@ pub fn read(page: Option<(u64, u64)>) -> Result<MonitorView, isize> {
         ) as isize
     })
 }
+
+/// Select this caller's observation tab/page. Never a process-control request.
+pub fn select_with(
+    operation: u64,
+    value: u64,
+    mut exchange: impl FnMut(u64, u64) -> isize,
+) -> Result<(), isize> {
+    if !matches!((operation, value), (0, 0..=1) | (1, 1 | u64::MAX)) {
+        return Err(crate::abi::SYSCALL_ERR_INVALID_STATE);
+    }
+    match exchange(operation, value) {
+        0 => Ok(()),
+        code => Err(code),
+    }
+}
+#[cfg(all(target_arch = "x86_64", target_os = "none"))]
+pub fn select(operation: u64, value: u64) -> Result<(), isize> {
+    select_with(operation, value, |op, value| unsafe {
+        crate::raw::syscall(367, [op, value, 0, 0, 0]) as isize
+    })
+}
