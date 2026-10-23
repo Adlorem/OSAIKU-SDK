@@ -120,7 +120,7 @@ def pack(config, base, key):
     fields(config, ("package", "compatibility", "resources"), ("package", "compatibility"))
     p = config["package"]
     fields(p, ("id", "name", "version", "sdk", "release", "epoch", "executable", "permissions",
-               "memory_bytes", "io_bytes", "threads", "instances", "surfaces", "entry", "width", "height"),
+               "memory_bytes", "io_bytes", "threads", "instances", "surfaces", "entry", "width", "height", "category"),
            ("id", "name", "version", "release", "epoch", "executable", "memory_bytes"))
     compat = compatibility(config["compatibility"])
     resources = config.get("resources", [])
@@ -140,7 +140,10 @@ def pack(config, base, key):
     metadata_size = table + 112 * len(components)
     metadata = bytearray(metadata_size)
     entry = {"native": 1, "window": 2}[p.get("entry", "native")]
-    struct.pack_into("<8sIIQQQQHHHHHHHH", metadata, 0, b"OSAMNF01", 1, metadata_size,
+    categories = ("other", "system", "utilities", "office", "graphics", "multimedia",
+                  "internet", "games", "development", "education")
+    category = categories.index(p.get("category", "other"))
+    struct.pack_into("<8sIIQQQQHHHHHHHH", metadata, 0, b"OSAMNF01", 2 if "category" in p else 1, metadata_size,
                      p["release"], p.get("permissions", 0), p["memory_bytes"], p.get("io_bytes", 65536),
                      p.get("threads", 1), p.get("instances", 1), p.get("surfaces", 0), entry,
                      p.get("width", 0), p.get("height", 0), len(compat), len(components))
@@ -148,6 +151,7 @@ def pack(config, base, key):
     metadata[192:320] = fixed(p["name"], 128)
     metadata[320:384] = fixed(p["version"], 64)
     metadata[384:448] = fixed(p.get("sdk", "0.1.0"), 64)
+    struct.pack_into("<H", metadata, 448, category)
     metadata[512:512 + len(compat)] = compat
     body = bytearray()
     for index, (kind, name, content) in enumerate(components):

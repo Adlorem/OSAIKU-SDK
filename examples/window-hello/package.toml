@@ -1,5 +1,6 @@
 # An ordinary package ID absent from the OS boot catalog.
 [package]
+category = "development"
 id = "dev.sdk-examples.counter"
 name = "Licznik SDK"
 version = "0.1.0"
@@ -21,3 +22,8 @@ height = 480
 abi_major = 1
 abi_minor = 0
 protocols = [{ id = 1, major = 1 }, { id = 2, major = 1 }]
+
+[[resources]]
+name = "app-sdk-counter"
+path = "icon.rgba"
+kind = "icon"

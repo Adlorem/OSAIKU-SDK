@@ -39,7 +39,7 @@ pub mod action {
     pub const SUMMARY: u64 = 13;
     /// Kernel inventory notice; does not navigate or restart directory listing.
     pub const DEVICES: u64 = 18;
-    // 14..=19 belong to browser/transfer notices, 20..=25 to USB export.
+    // 14..=19 belong to browser/transfer notices, 20..=25 are retired USB export IDs.
     // These IDs share the kernel dispatcher: they must never overlap.
     pub const SELECT: u64 = 40;
     pub const CONTEXT: u64 = 41;
@@ -73,7 +73,7 @@ const _: () = {
                 && commands[i] != crate::file_browser::KEEP_BOTH
                 && commands[i] != crate::file_browser::SKIP
         );
-        assert!(commands[i] < crate::file_export::SCAN || commands[i] > crate::file_export::ENTER);
+        assert!(commands[i] != crate::file_export::SAVE);
         let mut j = 0;
         while j < i {
             assert!(commands[i] != commands[j]);
@@ -358,7 +358,7 @@ impl View {
         for word in self.export.words() {
             fold(&word.to_le_bytes());
         }
-        fold(&self.export.label);
+        fold(&self.export.reserved_label);
         fold(&self.export.filename);
         fold(&self.export.diagnostic);
         for word in [

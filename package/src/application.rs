@@ -11,6 +11,22 @@ pub const MAX_RESOURCE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_ICON_BYTES: u64 = 8 + 256 * 256 * 4;
 pub const MAX_MEMORY_BYTES: u64 = 65535 * 4096;
 
+/// Signed discovery metadata only; categories confer no runtime privileges.
+pub mod category {
+    pub const NAMES: [&str; 10] = [
+        "other",
+        "system",
+        "utilities",
+        "office",
+        "graphics",
+        "multimedia",
+        "internet",
+        "games",
+        "development",
+        "education",
+    ];
+}
+
 /// Requests, never grants. Privileged system roles have no bit in this mask.
 pub mod permission {
     pub const SELECTED_FILE_READ: u64 = 1;
@@ -54,7 +70,8 @@ impl<'a> Manifest<'a> {
         if bytes.len() < MANIFEST_BYTES || bytes.len() > MAX_METADATA_BYTES {
             return Err(Error::Length);
         }
-        if &bytes[..8] != b"OSAMNF01" || u32_at(bytes, 8) != 1 {
+        let version = u32_at(bytes, 8);
+        if &bytes[..8] != b"OSAMNF01" || !matches!(version, 1 | 2) {
             return Err(Error::Format);
         }
         if u32_at(bytes, 12) as usize != bytes.len() {
@@ -74,7 +91,14 @@ impl<'a> Manifest<'a> {
         )
         .map_err(|_| Error::Compatibility)?;
         zero(&bytes[MANIFEST_BYTES + compatibility_len..table])?;
-        zero(&bytes[448..512])?;
+        if version == 1 {
+            zero(&bytes[448..512])?;
+        } else {
+            if usize::from(u16_at(bytes, 448)) >= category::NAMES.len() {
+                return Err(Error::Manifest);
+            }
+            zero(&bytes[450..512])?;
+        }
         let id = text(&bytes[64..192])?;
         if !identifier(id) || reserved_identity(id) {
             return Err(Error::Identity);
@@ -155,6 +179,12 @@ impl<'a> Manifest<'a> {
     }
     pub fn version(&self) -> &'a str {
         text(&self.bytes[320..384]).unwrap()
+    }
+    pub fn category(&self) -> u16 {
+        u16_at(self.bytes, 448)
+    }
+    pub fn category_name(&self) -> &'static str {
+        category::NAMES[usize::from(self.category())]
     }
     pub fn release(&self) -> u64 {
         u64_at(self.bytes, 16)

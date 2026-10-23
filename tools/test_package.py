@@ -82,6 +82,16 @@ url = "https://packages.example/hello.osapp"
         self.repository()
         self.assertEqual((self.root / "index.osaidx").read_bytes(), bytes.fromhex((VECTORS / "repository.hex").read_text()))
 
+    def test_signed_category_and_unknown_category_refusal(self):
+        manifest = self.manifest.replace('[package]', '[package]\ncategory = "office"')
+        (self.root / "app.toml").write_text(manifest)
+        self.pack()
+        self.approve()
+        self.assertIn("category=office", self.run_tool("verify", "app.osapp", "--policy", "policy").stdout)
+        (self.root / "app.toml").write_text(manifest.replace('"office"', '"administrator"'))
+        self.run_tool("pack", "app.toml", "--key", "private", "--output", "bad.osapp", ok=False)
+        self.assertFalse((self.root / "bad.osapp").exists())
+
     def test_revocation_epoch_and_exact_rollback_approval(self):
         self.pack()
         self.approve()

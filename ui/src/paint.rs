@@ -139,6 +139,7 @@ pub struct Semantic<'a> {
     pub visible_bounds: Rect,
     pub clipped: bool,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Scrollbar {
     pub track: Rect,
     pub thumb: Rect,
@@ -499,6 +500,31 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                             height: h,
                         };
                         painter.image(at, image, p.clip);
+                    } else if let Some(mask) = self
+                        .text_of(i)
+                        .strip_prefix("mask8:")
+                        .filter(|hex| hex.len() == 16)
+                        .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                    {
+                        // Bounded, pointer-free thumbnails from package metadata.
+                        // Exactly 64 cells; no image decoder or resource lookup.
+                        let cell = r.width.min(r.height) / 8;
+                        let left = r.x + ((r.width - cell * 8) / 2) as i32;
+                        let top = r.y + ((r.height - cell * 8) / 2) as i32;
+                        for bit in 0..64 {
+                            if mask & (1u64 << bit) != 0 && cell != 0 {
+                                painter.fill(
+                                    Rect {
+                                        x: left + (bit % 8 * cell) as i32,
+                                        y: top + (bit / 8 * cell) as i32,
+                                        width: cell,
+                                        height: cell,
+                                    },
+                                    color,
+                                    p.clip,
+                                );
+                            }
+                        }
                     } else {
                         fill_box(
                             painter,

@@ -131,7 +131,7 @@ impl Map {
                             && binding.object == view.revision
                             && binding.version == view.mount_generation
                     }
-                    e::SCAN..=e::ENTER => binding.object == 0 && binding.version == 0,
+                    e::SAVE => binding.object == 0 && binding.version == 0,
                     _ => false,
                 })
             })

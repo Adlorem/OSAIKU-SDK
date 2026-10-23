@@ -62,6 +62,7 @@ fn run() -> Result<(), String> {
                 bytes.len(),
                 hex(&digest(&bytes))
             );
+            println!("category={}", package.manifest().category_name());
             if command == "verify" {
                 let policy_bytes = read(arg(2)?, policy::MAX_BYTES as u64)?;
                 let policy = PolicyDocument::parse(&policy_bytes).map_err(err)?;

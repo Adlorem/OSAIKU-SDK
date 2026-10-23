@@ -1,7 +1,7 @@
 //! Protected package broker. A token identifies kernel-retained human intent;
 //! no message can supply a package path, trust key, permissions or consent.
 pub const SYSCALL: u64 = 397;
-pub const VERSION: u64 = 1;
+pub const VERSION: u64 = 3;
 pub const POLL: u64 = 0;
 pub const EXECUTE: u64 = 1;
 pub const STATUS: u64 = 2;
@@ -9,6 +9,12 @@ pub const CANCEL: u64 = 3;
 /// initd acknowledges an opened window, or reports a failed first-frame transaction.
 pub const OPENED: u64 = 4;
 pub const OPEN_FAILED: u64 = 5;
+/// initd binds the browser it created to the retained file-choice intent.
+pub const CHOOSER_BOUND: u64 = 6;
+pub const CHOOSER_FAILED: u64 = 7;
+pub const RETURNED: u64 = 8;
+pub const HOST_READY: u64 = 9;
+pub const HOST_FAILED: u64 = 10;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -16,6 +22,9 @@ pub struct Request {
     pub operation: u64,
     pub sequence: u64,
     pub token: u64,
+    pub endpoint: u64,
+    pub window: u64,
+    pub incarnation: u64,
 }
 impl Request {
     pub const EMPTY: Self = Self {
@@ -23,12 +32,24 @@ impl Request {
         operation: POLL,
         sequence: 1,
         token: 0,
+        endpoint: 0,
+        window: 0,
+        incarnation: 0,
     };
     pub fn canonical(&self) -> bool {
         self.version == VERSION
             && self.sequence != 0
-            && self.operation <= OPEN_FAILED
+            && self.operation <= HOST_FAILED
             && ((self.operation == POLL) == (self.token == 0))
+            && if self.operation == CHOOSER_BOUND {
+                self.endpoint != 0 && self.window != 0 && self.incarnation != 0
+            } else if matches!(self.operation, HOST_READY | OPENED | OPEN_FAILED) {
+                self.endpoint != 0 && self.window == 0 && self.incarnation == 0
+            } else if self.operation == CHOOSER_FAILED {
+                self.window == 0 && self.incarnation == 0
+            } else {
+                self.endpoint == 0 && self.window == 0 && self.incarnation == 0
+            }
     }
 }
 #[repr(C)]
@@ -42,6 +63,13 @@ pub struct Reply {
     pub completed: u64,
     pub total: u64,
     pub endpoint: u64,
+    /// Fixed desktop host to open. Zero for ordinary package transactions.
+    pub host: u64,
+    /// 0: package operation, 1: file chooser, 2: fixed Start launcher.
+    pub purpose: u64,
+    /// Exact requesting window to restore after a file selection.
+    pub window: u64,
+    pub incarnation: u64,
 }
 impl Reply {
     pub const EMPTY: Self = Self {
@@ -53,6 +81,10 @@ impl Reply {
         completed: 0,
         total: 0,
         endpoint: 0,
+        host: 0,
+        purpose: 0,
+        window: 0,
+        incarnation: 0,
     };
     pub fn valid_for(&self, r: &Request) -> bool {
         r.canonical()
@@ -60,6 +92,7 @@ impl Reply {
             && self.sequence == r.sequence
             && self.status <= 6
             && self.phase <= 5
+            && self.purpose <= 2
             && (r.operation == POLL || self.token == r.token)
             && self.completed <= self.total
     }

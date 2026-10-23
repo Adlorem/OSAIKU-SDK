@@ -27,6 +27,7 @@ pub mod surface;
 pub mod text_atlas;
 pub mod text_model;
 pub mod theme;
+pub mod virtual_grid;
 pub mod virtual_list;
 mod wire;
 

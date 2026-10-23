@@ -55,6 +55,48 @@ not infer that approval or update a runtime catalog. A catalog must additionally
 reject a different digest for an already published release and bind approval to
 its current identity, policy and operation generation.
 
+## Application categories
+
+Set `category = "system"` (for example) in an application's `[package]`
+table. Accepted stable identifiers are `other`, `system`, `utilities`, `office`,
+`graphics`, `multimedia`, `internet`, `games`, `development`, and `education`.
+An unknown identifier is refused before publishing a package. Categories are
+signed discovery metadata; they grant no permissions, roles or trust.
+
+The shell supplies category labels independently of these stable identifiers;
+the current Start menu uses Polish labels. Its all-applications tab is a filter,
+not a manifest category. System-wide multilingual support is planned separately;
+stable category identifiers must not become translated strings. Packages without
+the field remain readable and use the `other` category.
+
+The release manifests classify Themes and System Manager as System, Document
+as Office, and the native/window SDK examples as Development. These rebuilt
+packages target a fresh system installation; no on-disk catalog migration is
+implied. The Start grid derives entries only from native installed packages.
+It uses the package display name and icon; no separate shortcut file is needed.
+
+A fresh system installation provisions Themes and System Manager into the native
+application store using the authenticated release's application publisher and
+the normal verified installation transaction. Document stays optional. Default
+provisioning runs only during fresh installation, before boot publication;
+normal boot/update never recreates a default package the user uninstalled.
+
+Declare one `[[resources]]` entry with `kind = "icon"`, its logical `name`, and
+the relative `path` of an RGBA resource as specified below. The desktop uses
+existing named shell artwork for known icons and a bounded 8×8 thumbnail for
+other package icons, with a fallback when the package has no visible icon.
+Known names are `abi::shell_ui::APP_ICONS`; the release packages carry the
+same artwork as their `icon.rgba` (`tools/icons/package-icons.py`), so a
+package and the desktop show one picture.
+
+The shell caches the complete installed discovery metadata within the native
+store's existing 32-application bound. Catalog mutations refresh this snapshot
+before completion even while Start is closed; unchanged digests reuse their
+metadata. Opening, filtering and scrolling a ready snapshot require no storage
+request. Serviced warms it after boot/remount, and explicit refresh retries a
+failed fill. Cache metadata never grants launch authority: catalog generation,
+policy and selected package identity are still checked when launching.
+
 ## Repository authoring
 
 ```toml
@@ -131,7 +173,7 @@ bytes, and the envelope additionally covers all padding.
 
 | Manifest offset | Field |
 | --- | --- |
-| 0 / 8 / 12 | `OSAMNF01`, u32 version 1, u32 metadata size |
+| 0 / 8 / 12 | `OSAMNF01`, u32 manifest version 1 or 2, u32 metadata size |
 | 16 / 24 | u64 monotonic release / requested permission bits |
 | 32 / 40 | u64 memory budget / I/O budget |
 | 48 / 50 / 52 | u16 threads (1–16), instances (1–64), surfaces (0–16) |
@@ -139,7 +181,15 @@ bytes, and the envelope additionally covers all padding.
 | 60 / 62 | u16 compatibility length / component count |
 | 64 / 192 | 128-byte ID / 128-byte display name |
 | 320 / 384 | 64-byte version label / 64-byte SDK label |
-| 448–511 | zero |
+| 448 / 450–511 | v2: u16 category / zero; v1: all bytes 448–511 zero |
+
+Manifest v2 category numbers are 0 Other, 1 System, 2 Utilities, 3 Office,
+4 Graphics, 5 Multimedia, 6 Internet, 7 Games, 8 Development, 9 Education.
+All other numbers, unknown manifest versions and nonzero reserved bytes are
+rejected. The packer emits v2 when the TOML explicitly declares a category;
+omitting it retains canonical v1 encoding and the existing known-answer vectors.
+The signed envelope and component format remain v1; a category change alters
+signed metadata and therefore the complete package digest.
 
 Memory requests are 4096 through 65,535 × 4096 bytes; I/O requests are 1 through
 16 MiB. Native entry has no surface or window dimensions; window entry requires
@@ -273,8 +323,9 @@ authorize installation, purge, selected-file access or publisher trust.
 
 ## Runtime local installation and protected consent (A5)
 
-On a mounted authenticated OSAIFS volume, open a publisher's raw 32-byte
-Ed25519 **public** key with the `.osakey` extension in File Manager. Compare
+On a mounted authenticated OSAIFS volume, use Package Manager → **Zainstaluj
+z pliku** to select a publisher's raw 32-byte Ed25519 **public** key with the
+`.osakey` extension. File Manager is independent of package installation. Compare
 both halves of the SHA-256 fingerprint in the protected system panel before
 choosing **Zaufaj temu kluczowi**. This authorizes the Application domain only.
 It explicitly provisions the first policy or adds a key at the next policy
@@ -282,7 +333,8 @@ epoch; existing domain records and revocation tombstones remain. Opening a key
 alone writes nothing. The package's signature does not contain a trusted key,
 and the host tool's trust decision does not approve runtime installation.
 
-Open `.osapp` from native disk or a selected USB FAT directory. The kernel
+Use the same Package Manager source browser to select `.osapp` from native
+disk or a selected USB FAT directory. The kernel
 revalidates the exact row/object/version or attachment/directory entry, streams
 and verifies the complete package, then shows publisher, both digest halves,
 release, requested rights, policy/catalog/operation generations, package size
@@ -292,9 +344,14 @@ source; replacement, disconnection, changed policy and stale catalog consent
 cannot publish a different package. No scripts execute and installation never
 automatically starts the program. **Uruchom** is a separate protected decision.
 
-The **Aplikacje** sidebar entry enumerates active applications and retained data
-with Previous/Next controls, running-instance count and required-component
-status. Uninstall preserves data; selecting retained data exposes a separate
+Package Manager opens with a paged list of native installations, retained data
+and applications bundled in the signed system release. Each row offers
+**Szczegóły**, **Uruchom** and **Zainstaluj**; unavailable actions are disabled.
+Details retains the running-instance count, required-component status and
+management actions, with **Wróć do listy** returning to the same page. Bundled
+applications can be installed permanently on the native disk through the same
+verified store transaction. A missing publisher trust decision is presented
+separately before install consent; the OS signing key is never silently trusted. Uninstall preserves data; selecting retained data exposes a separate
 purge confirmation. Refresh reconciles pending durable receipts and performs
 bounded collection; live and required revisions remain protected. An uncertain
 commit is reported as an error and is never blindly retried. Recovery from a
@@ -464,9 +521,9 @@ versions are pinned to the system release; the ordinary mutable application
 catalog remains independent. Launch contexts use `BANK_PACKAGE` for a pinned
 release version and `PACKAGE` for a mutable installation, both ordinary identities.
 User package policy changes revoke mutable installations, not the authenticated
-recovery distribution. Pinned versions appear in File Manager's Applications
-catalog and are marked required; ordinary user installations retain the existing
-update, rollback and uninstall flow. Live USB does not require NVMe or a mutable
+recovery distribution. Pinned versions appear as installation sources in the independent Package
+Manager. Start lists only native installed applications; ordinary installations
+retain the update, rollback and uninstall flow. Live USB does not require NVMe or a mutable
 application store to reach the installer and recovery tools.
 
 Validate an assembled release without firmware using:
@@ -478,3 +535,11 @@ cargo run --manifest-path sdk/Cargo.toml -p osaiku-package --example system-rele
 The signing seed stays outside the checkout. This is software release
 verification against a compiled public key, not a claim of hardware Secure Boot.
 Old bank manifests and revision-6 handoffs are unsupported; use a fresh install.
+
+
+The shell carries the verified manifest display name and icon resource name with
+the dynamic application identity into window decorations. A matching original
+shell SVG image set retains its theme selection; these presentation names never
+grant a service role or replace the issued application ID. Start catalog rows are
+created by installation and removed by uninstall, independently of the recovery
+release's package catalog.

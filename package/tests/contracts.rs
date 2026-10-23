@@ -234,6 +234,44 @@ fn manifest_ranges_reserved_id_privileges_and_budgets_are_checked() {
         assert!(Package::parse(&signed(Domain::Application, &p, 2)).is_err());
     }
 }
+
+#[test]
+fn signed_categories_are_versioned_and_legacy_packages_remain_readable() {
+    let legacy = app();
+    assert_eq!(
+        Package::parse(&legacy).unwrap().manifest().category_name(),
+        "other"
+    );
+    let keys = [trust(Domain::Application)];
+    let policy = TrustPolicy {
+        epoch: 2,
+        keys: &keys,
+    };
+    for (category, name) in category::NAMES.iter().enumerate() {
+        let mut payload = legacy[192..].to_vec();
+        put32(&mut payload, 8, 2);
+        put16(&mut payload, 448, category as u16);
+        let bytes = signed(Domain::Application, &payload, 2);
+        let verified = Package::parse(&bytes).unwrap().verify(&policy).unwrap();
+        assert_eq!(verified.manifest().category_name(), *name);
+        assert_eq!(verified.manifest().permissions(), 0);
+        // Changing classification without the publisher's signature is refused.
+        let mut changed = bytes;
+        put16(
+            &mut changed,
+            HEADER_BYTES + 448,
+            ((category + 1) % category::NAMES.len()) as u16,
+        );
+        assert!(Package::parse(&changed).unwrap().verify(&policy).is_err());
+    }
+    for (version, category, reserved) in [(1, 1, 0), (2, 10, 0), (3, 0, 0), (2, 1, 1)] {
+        let mut payload = legacy[192..].to_vec();
+        put32(&mut payload, 8, version);
+        put16(&mut payload, 448, category);
+        payload[450] = reserved;
+        assert!(Package::parse(&signed(Domain::Application, &payload, 2)).is_err());
+    }
+}
 #[test]
 fn streaming_authentication_is_bounded_terminal_and_checks_exact_length() {
     let data = app();

@@ -1,4 +1,5 @@
 [package]
+category = "development"
 id = "dev.sdk-examples.native-hello"
 name = "Native Hello"
 version = "0.1.0"
@@ -16,3 +17,8 @@ entry = "native"
 abi_major = 1
 abi_minor = 0
 protocols = [{ id = 1, major = 1 }]
+
+[[resources]]
+name = "app-sdk-hello"
+path = "icon.rgba"
+kind = "icon"

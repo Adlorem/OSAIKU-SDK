@@ -1,45 +1,38 @@
-//! Metadata-only destination display. Authority comes only from trusted HID.
-pub const SCAN: u64 = 20;
-pub const NEXT: u64 = 21;
-pub const SELECT: u64 = 22;
-pub const CONFIRM: u64 = 23;
-pub const BACK: u64 = 24;
-pub const ENTER: u64 = 25;
+//! Metadata-only native Diagnostics save receipt. Authority comes from trusted HID.
+// USB export actions 20..=25 are retired; never reuse their meanings.
+pub const SAVE: u64 = 53;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct View {
     pub revision: u64,
-    pub mode: u64,
+    pub reserved_mode: u64,
     pub phase: u64,
-    pub ports: u64,
-    pub selected: u64,
-    pub blocks: u64,
+    pub reserved_ports: [u64; 2],
+    pub mount: u64,
     pub status: u64,
-    pub label: [u8; 28],
+    pub reserved_label: [u8; 28],
     pub filename: [u8; 12],
-    /// Bounded, printable kernel diagnostic; no device identifiers or addresses.
+    /// Bounded technical detail, supplementary to the application's error text.
     pub diagnostic: [u8; 64],
 }
 impl View {
     pub const EMPTY: Self = Self {
         revision: 0,
-        mode: 0,
+        reserved_mode: 0,
         phase: 0,
-        ports: 0,
-        selected: 0,
-        blocks: 0,
+        reserved_ports: [0; 2],
+        mount: 0,
         status: 0,
-        label: [0; 28],
+        reserved_label: [0; 28],
         filename: [0; 12],
         diagnostic: [0; 64],
     };
     pub fn canonical(&self) -> bool {
-        self.mode <= 1
-            && self.phase <= 5
-            && self.ports <= u32::MAX as u64
-            && self.selected <= 32
+        self.reserved_mode == 0
+            && matches!(self.phase, 0 | 3 | 4 | 5)
+            && self.reserved_ports == [0; 2]
+            && self.reserved_label == [0; 28]
             && self.status <= 14
-            && self.label.iter().all(|b| *b == 0 || (32..=126).contains(b))
             && self
                 .diagnostic
                 .iter()
@@ -52,12 +45,14 @@ impl View {
     pub fn words(&self) -> [u64; 7] {
         [
             self.revision,
-            self.mode,
+            self.reserved_mode,
             self.phase,
-            self.ports,
-            self.selected,
-            self.blocks,
+            self.reserved_ports[0],
+            self.reserved_ports[1],
+            self.mount,
             self.status,
         ]
     }
 }
+const _: () = assert!(core::mem::size_of::<View>() == 160);
+const _: () = assert!(SAVE > crate::file_broker::INPUT);

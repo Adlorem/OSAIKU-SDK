@@ -976,6 +976,18 @@ pub fn ui_content_declined(request: &UiDocumentWindowPresentRequest) -> [u8; 24]
     bytes
 }
 
+/// Correlated, scalar-only preparation detail. No text or authority is carried.
+pub fn ui_content_declined_with_code(
+    request: &UiDocumentWindowPresentRequest,
+    code: i64,
+) -> [u8; 32] {
+    let mut bytes = [0; 32];
+    bytes[..24].copy_from_slice(&ui_content_declined(request));
+    bytes[..8].copy_from_slice(b"OSUINO02");
+    bytes[24..].copy_from_slice(&code.to_le_bytes());
+    bytes
+}
+
 fn put_u16(bytes: &mut [u8], offset: usize, value: u16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }
