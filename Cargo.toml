@@ -1,5 +1,5 @@
 [workspace]
-members = ["ui", "runtime", "package", "examples/hello", "examples/native-hello", "examples/window-hello", "examples/report-window"]
+members = ["ui", "runtime", "package", "driver-protocol", "driver-runtime", "examples/hello", "examples/native-hello", "examples/window-hello", "examples/report-window"]
 resolver = "2"
 
 [workspace.package]

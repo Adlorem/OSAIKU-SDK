@@ -1,0 +1,6 @@
+[package]
+name = "osaiku-driver-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "no_std versioned Driver Kit records; no hardware authority"

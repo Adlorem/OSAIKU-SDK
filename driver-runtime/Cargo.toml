@@ -1,0 +1,9 @@
+[package]
+name = "osaiku-driver-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bounded no_std Driver Kit lifecycle, resource and request contracts"
+
+[dependencies]
+osaiku-driver-protocol = { path = "../driver-protocol" }

@@ -1,0 +1,14 @@
+[package]
+name = "driver-kit-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+osaiku-driver-protocol = { path = "../driver-protocol" }
+osaiku-driver-runtime = { path = "../driver-runtime" }
+
+[workspace]
+
+[profile.release]
+panic = "abort"
