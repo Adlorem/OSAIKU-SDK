@@ -118,7 +118,7 @@ impl GeometryOffer {
     }
 }
 
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 mod delta;
 pub use delta::{DeltaOffer, DirtyRows};
 pub const MAX_EXTENT: u32 = 4096;
@@ -129,7 +129,7 @@ pub const MAX_METADATA: usize = 32 * 1024;
 pub const MAX_OWNER_WINDOWS: usize = 4;
 pub const MAX_DAMAGE: usize = 16;
 pub const MAX_MATERIALS: usize = 16;
-pub const MAX_ELEMENTS: usize = 128;
+pub const MAX_ELEMENTS: usize = crate::MAX_NODES;
 pub const MAX_LABELS: usize = 8192;
 pub const MAX_LABEL: usize = 256;
 pub const BGRA8_PREMULTIPLIED: u32 = 1;
@@ -309,12 +309,22 @@ impl Publication {
     /// rasterization runs in the observer/input host. The frozen recipe still
     /// supplies ancestry, chart data and service-validated action identifiers.
     pub fn layout(&self, view: &crate::Document) -> Result<crate::layout::Layout, Refusal> {
+        let mut layout = crate::layout::Layout::EMPTY;
+        self.layout_into(view, &mut layout)?;
+        Ok(layout)
+    }
+    /// Validate into admitted caller-owned storage without a large stack copy.
+    pub fn layout_into(
+        &self,
+        view: &crate::Document,
+        layout: &mut crate::layout::Layout,
+    ) -> Result<(), Refusal> {
         self.validate()?;
         view.validate().map_err(|_| Refusal::Shape)?;
         if self.element_count != u32::from(view.len) || self.source_hash == 0 {
             return Err(Refusal::Identity);
         }
-        let mut layout = crate::layout::Layout::EMPTY;
+        layout.nodes.fill(crate::layout::Placed::default());
         layout.len = view.len as usize;
         layout.viewport = crate::layout::Rect {
             x: 0,
@@ -369,7 +379,7 @@ impl Publication {
                 disabled: e.state & DISABLED != 0,
             };
         }
-        Ok(layout)
+        Ok(())
     }
     /// Private static workspace initializer; not a valid publication by itself.
     pub const EMPTY: Self = Self {

@@ -33,6 +33,7 @@ Document wire major: 11. Catalog versions are exact-match.
 | `ui-value-bar` | ValueBar | Meter | false |
 | `ui-separator` | Separator | Separator | false |
 | `ui-icon` | Icon | Presentation | false |
+| `ui-popup-menu` | Popup | Group | true |
 
 ## Typed bindings
 
@@ -72,7 +73,7 @@ Report input must be checked against the host's registered contract before bindi
 
 ## Limits
 
-Nodes: 128; depth: 24; text bytes: 8192; series points: 120; wire bytes: 65536.
+Nodes: 256; depth: 24; text bytes: 8192; series points: 120; wire bytes: 65536.
 Report sources: 16; fields: 128; actions: 64.
 
 The catalog describes existing native primitives, not browser HTML/CSS.

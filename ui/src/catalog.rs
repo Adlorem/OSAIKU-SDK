@@ -67,12 +67,17 @@ components![
     ("ui-value-bar", ValueBar, Meter),
     ("ui-separator", Separator, Separator),
     ("ui-icon", Icon, Presentation),
+    ("ui-popup-menu", Popup, Group),
 ];
 pub fn component(tag: &str) -> Option<&'static Component> {
     COMPONENTS.iter().find(|entry| entry.tag == tag)
 }
 pub const fn actionable(kind: Kind) -> bool {
-    matches!(kind, Kind::Button | Kind::Row | Kind::TextInput)
+    // A popup's own action is its dismissal (a press outside it, or Escape).
+    matches!(
+        kind,
+        Kind::Button | Kind::Row | Kind::TextInput | Kind::Popup
+    )
 }
 
 #[derive(Clone, Copy, Debug)]

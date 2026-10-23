@@ -6,6 +6,7 @@ license.workspace = true
 description = "Experimental no_std native OSAIKU syscall and process contracts"
 
 [dependencies]
+osaiku-package = { path = "../package", default-features = false }
 osaiku-ui = { path = "../ui", default-features = false }
 sha2 = { version = "=0.10.9", default-features = false }
 

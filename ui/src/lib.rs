@@ -18,6 +18,7 @@ pub mod font_atlas;
 pub mod image;
 pub mod input;
 pub mod layout;
+pub mod notice;
 pub mod paint;
 pub mod raster;
 pub mod report;
@@ -26,6 +27,7 @@ pub mod surface;
 pub mod text_atlas;
 pub mod text_model;
 pub mod theme;
+pub mod virtual_grid;
 pub mod virtual_list;
 mod wire;
 
@@ -38,7 +40,7 @@ pub const HOST_IMAGE: u8 = 0x80;
 /// Image sets a background can name.
 pub const HOST_IMAGES: u8 = 8;
 pub const NO_DECORATION: u8 = u8::MAX;
-pub const MAX_NODES: usize = 128;
+pub const MAX_NODES: usize = 256;
 pub const MAX_DEPTH: usize = 24;
 pub const MAX_TEXT: usize = 8192;
 pub const MAX_LEAF_TEXT: usize = 256;
@@ -84,6 +86,9 @@ pub enum Kind {
     TextInput = 10,
     VirtualList = 11,
     Template = 12,
+    /// `ui-popup-menu`: a container drawn above the rest of the document at
+    /// an anchor point, outside its parent's flow (see `Node::popup_anchor`).
+    Popup = 13,
 }
 impl Kind {
     pub fn from_byte(value: u8) -> Option<Self> {
@@ -101,13 +106,19 @@ impl Kind {
             10 => Self::TextInput,
             11 => Self::VirtualList,
             12 => Self::Template,
+            13 => Self::Popup,
             _ => return None,
         })
     }
     pub fn container(self) -> bool {
         matches!(
             self,
-            Self::Container | Self::Table | Self::Row | Self::VirtualList | Self::Template
+            Self::Container
+                | Self::Table
+                | Self::Row
+                | Self::VirtualList
+                | Self::Template
+                | Self::Popup
         )
     }
 }
@@ -152,7 +163,7 @@ impl Role {
     }
     fn matches(self, kind: Kind) -> bool {
         match kind {
-            Kind::Container => matches!(self, Self::Group | Self::Navigation),
+            Kind::Container | Kind::Popup => matches!(self, Self::Group | Self::Navigation),
             Kind::VirtualList | Kind::Template => self == Self::Group,
             Kind::Text => matches!(self, Self::Text | Self::Heading),
             Kind::Button => self == Self::Button,
@@ -328,14 +339,16 @@ pub struct Node {
     pub text_start: u16,
     pub text_len: u16,
     pub bindings: [u32; 6],
-    /// Percent value, or the configuration index for Kind::VirtualList.
+    /// Percent value, the configuration index for Kind::VirtualList, or the
+    /// anchor's x for Kind::Popup.
     pub value: u16,
     pub series_start: u16,
     pub series_len: u16,
     pub style: Style,
     pub narrow: Style,
     pub breakpoint: u16,
-    /// Requested vertical offset, clamped by the shared layout.
+    /// Requested vertical offset, clamped by the shared layout; the anchor's
+    /// y for Kind::Popup, which never scrolls.
     pub scroll_y: u32,
     /// Seven nonempty disabled/selected/focused combinations, wide then narrow.
     /// NO_STATE_STYLE reuses the corresponding base style.
@@ -345,6 +358,19 @@ pub struct Node {
     pub inherited: [u8; 16],
 }
 impl Node {
+    /// A popup's anchor in document (viewport) pixels: the point a context
+    /// menu opens at. Layout keeps the popup inside the viewport, opening it
+    /// to the left of or above the point when there is no room after it.
+    pub fn popup_anchor(&self) -> Option<(u32, u32)> {
+        (self.kind == Kind::Popup).then_some((u32::from(self.value), self.scroll_y))
+    }
+    /// Set a popup's anchor, clamped to the largest viewport (4096 px).
+    pub fn set_popup_anchor(&mut self, x: u32, y: u32) {
+        if self.kind == Kind::Popup {
+            self.value = x.min(4096) as u16;
+            self.scroll_y = y.min(4096);
+        }
+    }
     pub const EMPTY: Self = Self {
         id: 0,
         parent: NONE,
@@ -526,6 +552,16 @@ impl Document {
                 .any(|b| n.bindings[b.slot] != 0 && !b.accepts(n.kind))
             {
                 return Err(Error::Binding);
+            }
+            // A popup is positioned by its anchor, never by a list row.
+            if n.kind == Kind::Popup
+                && (n.value > 4096
+                    || n.scroll_y > 4096
+                    || n.style.overflow == 2
+                    || n.narrow.overflow == 2
+                    || virtual_list::in_template(self, i))
+            {
+                return Err(Error::Value);
             }
         }
         virtual_list::validate(self)?;

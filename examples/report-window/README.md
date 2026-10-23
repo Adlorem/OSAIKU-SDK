@@ -21,8 +21,8 @@ cargo build --offline --release -p osaiku-report-window --features native --targ
 
 Set `CARGO_TARGET_X86_64_OSAIKU_USER_LINKER` to the toolchain's `rust-lld` if it
 is not already configured. The only dependencies are public SDK crates.
-The experimental deployment convention matches `window-hello`: APP_ID 7 uses
-the OS-admitted System Update image slot in a separate demo ESP. The example
+The experimental deployment convention matches `window-hello`: the runtime
+reads its identity from the OS-admitted System Update image slot in a separate demo ESP. The example
 does not register a new application or grant update privileges. Do not overwrite
 a production update image to deploy it. A permanent report launcher and the
 assistant's region/window integration are still OS work.

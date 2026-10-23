@@ -69,16 +69,24 @@ struct Measurements {
     height: [u32; MAX_NODES],
 }
 impl Measurements {
+    const EMPTY: Self = Self {
+        first: [NONE; MAX_NODES],
+        next: [NONE; MAX_NODES],
+        height: [0; MAX_NODES],
+    };
     fn new(view: &Document, width: u32) -> Self {
-        let mut result = Self {
-            first: [NONE; MAX_NODES],
-            next: [NONE; MAX_NODES],
-            height: [0; MAX_NODES],
-        };
+        let mut result = Self::EMPTY;
+        result.prepare(view, width);
+        result
+    }
+    fn prepare(&mut self, view: &Document, width: u32) {
+        self.first.fill(NONE);
+        self.next.fill(NONE);
+        self.height.fill(0);
         for i in (1..view.len as usize).rev() {
             let parent = view.nodes[i].parent as usize;
-            result.next[i] = result.first[parent];
-            result.first[parent] = i as u16;
+            self.next[i] = self.first[parent];
+            self.first[parent] = i as u16;
         }
         // The current subset has single-line text and viewport-relative style
         // breakpoints: intrinsic height does not depend on assigned width.
@@ -87,7 +95,7 @@ impl Measurements {
             let n = &view.nodes[i];
             let s = view.resolved_style(i, width);
             let [top, _, bottom, _] = view.insets(s);
-            result.height[i] = if n.kind == Kind::Template {
+            self.height[i] = if n.kind == Kind::Template {
                 0
             } else if s.height != u16::MAX {
                 s.height as u32
@@ -103,15 +111,15 @@ impl Measurements {
             } else {
                 let mut count = 0u32;
                 let mut content = 0;
-                for child in result.children(i) {
-                    if view.nodes[child].state & state::HIDDEN != 0 {
+                for child in self.children(i) {
+                    if out_of_flow(&view.nodes[child]) {
                         continue;
                     }
                     count += 1;
                     content = if s.direction == 1 {
-                        content.max(result.height[child])
+                        content.max(self.height[child])
                     } else {
-                        content + result.height[child]
+                        content + self.height[child]
                     };
                 }
                 if s.direction == 0 {
@@ -120,7 +128,6 @@ impl Measurements {
                 content + top + bottom
             };
         }
-        result
     }
     fn children(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
         core::iter::successors(
@@ -129,7 +136,27 @@ impl Measurements {
         )
     }
 }
-const _: () = assert!(core::mem::size_of::<Measurements>() <= 1024);
+const _: () = assert!(core::mem::size_of::<Measurements>() <= 2048);
+
+/// Reusable layout scratch for hosts with small stacks. Keep it in the same
+/// guarded allocation as the layout; scenes borrow only the finished layout.
+/// Preparing in place avoids retaining these arrays above recursive placement.
+pub struct Workspace {
+    measurements: Measurements,
+    scroll: [u32; MAX_NODES],
+}
+impl Workspace {
+    pub const EMPTY: Self = Self {
+        measurements: Measurements::EMPTY,
+        scroll: [0; MAX_NODES],
+    };
+}
+const _: () = assert!(core::mem::size_of::<Workspace>() <= 3072);
+
+/// Hidden nodes and popups take no space in their parent's flow.
+fn out_of_flow(n: &Node) -> bool {
+    n.state & state::HIDDEN != 0 || n.kind == Kind::Popup
+}
 
 impl Layout {
     /// Application-owned workspace; initialize statically to avoid copying a
@@ -261,6 +288,38 @@ impl Layout {
         scroll: &[u32; MAX_NODES],
         result: &mut Self,
     ) -> Result<(), Error> {
+        let mut measurements = Measurements::EMPTY;
+        Self::compute_prepared(view, width, height, scroll, &mut measurements, result)
+    }
+    /// Use the document's scroll offsets and caller-owned scratch. No
+    /// node-sized temporary is placed on the caller's native stack.
+    pub fn compute_in(
+        view: &Document,
+        width: u32,
+        height: u32,
+        workspace: &mut Workspace,
+        result: &mut Self,
+    ) -> Result<(), Error> {
+        for (offset, node) in workspace.scroll.iter_mut().zip(view.nodes.iter()) {
+            *offset = node.scroll_y;
+        }
+        Self::compute_prepared(
+            view,
+            width,
+            height,
+            &workspace.scroll,
+            &mut workspace.measurements,
+            result,
+        )
+    }
+    fn compute_prepared(
+        view: &Document,
+        width: u32,
+        height: u32,
+        scroll: &[u32; MAX_NODES],
+        measurements: &mut Measurements,
+        result: &mut Self,
+    ) -> Result<(), Error> {
         view.validate()?;
         if width == 0 || height == 0 || width > 4096 || height > 4096 {
             return Err(Error::Limit);
@@ -274,10 +333,10 @@ impl Layout {
         result.nodes.fill(Placed::default());
         result.len = view.len as usize;
         result.viewport = viewport;
-        let measurements = Measurements::new(view, width);
+        measurements.prepare(view, width);
         result.place(
             view,
-            &measurements,
+            measurements,
             0,
             viewport,
             viewport,
@@ -375,7 +434,7 @@ impl Layout {
         let mut growing = 0;
         let mut fixed_height = 0;
         for child in measurements.children(i) {
-            if view.nodes[child].state & state::HIDDEN != 0 {
+            if out_of_flow(&view.nodes[child]) {
                 continue;
             }
             count += 1;
@@ -406,7 +465,7 @@ impl Layout {
         if s.direction == 0 && growing != 0 {
             content_height = fixed_height + gaps;
             for child in measurements.children(i) {
-                if view.nodes[child].state & state::HIDDEN == 0 && self.style(view, child).grow {
+                if !out_of_flow(&view.nodes[child]) && self.style(view, child).grow {
                     let minimum = if self.style(view, child).overflow == 0 {
                         measurements.height[child]
                     } else {
@@ -443,6 +502,9 @@ impl Layout {
         let mut x = inner.x;
         let mut y = inner.y - scroll_y as i32;
         for child in measurements.children(i) {
+            if view.nodes[child].kind == Kind::Popup {
+                continue;
+            }
             let cs = self.style(view, child);
             let w = if s.direction == 1 && cs.width == i16::MAX {
                 auto_width
@@ -490,15 +552,123 @@ impl Layout {
                 y += h as i32 + s.gap as i32;
             }
         }
+        // Popups last: they float above their siblings at their anchors.
+        for child in measurements.children(i) {
+            if view.nodes[child].kind == Kind::Popup {
+                self.place_popup(view, measurements, child, scroll, hidden, disabled);
+            }
+        }
     }
-    /// Same clipped geometry as rendering and semantic enumeration.
+    /// A popup is sized like a column (CSS width, or 240 px; its content's
+    /// height) and placed at its anchor in viewport pixels. Like a desktop
+    /// context menu it opens to the right of and below the point, or to the
+    /// left of / above it when that side has no room, and always stays inside
+    /// the viewport. Its clip is the viewport: no ancestor's overflow cuts it.
+    fn place_popup(
+        &mut self,
+        view: &Document,
+        measurements: &Measurements,
+        i: usize,
+        scroll: &[u32; MAX_NODES],
+        parent_hidden: bool,
+        parent_disabled: bool,
+    ) {
+        let viewport = self.viewport;
+        let s = self.style(view, i);
+        let width = match s.width {
+            i16::MAX => 240,
+            _ => self.width(s, viewport.width),
+        }
+        .min(viewport.width);
+        let height = measurements.height[i].min(viewport.height);
+        let (ax, ay) = view.nodes[i].popup_anchor().unwrap_or((0, 0));
+        let fit = |anchor: u32, size: u32, room: u32| -> i32 {
+            let start = if anchor.saturating_add(size) <= room {
+                anchor
+            } else {
+                anchor.saturating_sub(size)
+            };
+            start.min(room.saturating_sub(size)) as i32
+        };
+        let bounds = Rect {
+            x: viewport.x + fit(ax, width, viewport.width),
+            y: viewport.y + fit(ay, height, viewport.height),
+            width,
+            height,
+        };
+        self.place(
+            view,
+            measurements,
+            i,
+            bounds,
+            viewport,
+            scroll,
+            parent_hidden,
+            parent_disabled,
+        );
+        // Never scrolls: its scroll field is the anchor.
+        self.nodes[i].scroll_y = 0;
+    }
+    /// The nearest popup that contains `index` (itself included), if any.
+    pub fn popup_of(view: &Document, index: usize) -> Option<usize> {
+        let mut current = index;
+        for _ in 0..MAX_DEPTH {
+            let n = view.nodes.get(current)?;
+            if n.kind == Kind::Popup {
+                return Some(current);
+            }
+            if n.parent == NONE {
+                return None;
+            }
+            current = usize::from(n.parent);
+        }
+        None
+    }
+    fn open(&self, view: &Document, i: usize) -> bool {
+        view.nodes[i].kind == Kind::Popup
+            && !self.nodes[i].hidden
+            && self.nodes[i].clip.width != 0
+            && self.nodes[i].clip.height != 0
+    }
+    /// The topmost open popup with an action: it holds input, as a menu does.
+    pub fn modal_popup(&self, view: &Document) -> Option<usize> {
+        (0..self.len)
+            .rev()
+            .find(|i| self.open(view, *i) && view.nodes[*i].action != 0 && !self.nodes[*i].disabled)
+    }
+    /// Whether (x, y) lies on an open popup, so nothing beneath it is hit.
+    pub fn over_popup(&self, view: &Document, x: i32, y: i32) -> bool {
+        (0..self.len).any(|i| self.open(view, i) && self.nodes[i].clip.contains(x, y))
+    }
+    /// Same clipped geometry as rendering and semantic enumeration. Open
+    /// popups come first: a point on one hits only its items (its padding
+    /// hits nothing). Elsewhere, while a popup with an action is open, that
+    /// popup is the target: its action dismisses it, the press is consumed.
     pub fn hit(&self, view: &Document, x: i32, y: i32) -> Option<usize> {
-        (0..self.len).rev().find(|i| {
-            view.nodes[*i].action != 0
-                && !self.nodes[*i].disabled
-                && !self.nodes[*i].hidden
-                && self.nodes[*i].clip.contains(x, y)
-        })
+        for p in (0..self.len).rev().filter(|p| self.open(view, *p)) {
+            if self.nodes[p].clip.contains(x, y) {
+                return (p + 1..self.len).rev().find(|i| {
+                    Self::popup_of(view, *i) == Some(p) && self.actionable_at(view, *i, x, y)
+                });
+            }
+        }
+        if let Some(modal) = self.modal_popup(view) {
+            return Some(modal);
+        }
+        self.hit_beneath(view, x, y)
+    }
+    /// The element under (x, y) ignoring every popup, e.g. the row a second
+    /// context click names while a menu is still open.
+    pub fn hit_beneath(&self, view: &Document, x: i32, y: i32) -> Option<usize> {
+        (0..self.len)
+            .rev()
+            .find(|i| Self::popup_of(view, *i).is_none() && self.actionable_at(view, *i, x, y))
+    }
+    fn actionable_at(&self, view: &Document, i: usize, x: i32, y: i32) -> bool {
+        view.nodes[i].action != 0
+            && !self.nodes[i].disabled
+            && !self.nodes[i].hidden
+            && self.nodes[i].clip.contains(x, y)
     }
     pub fn focus_next(
         &self,
@@ -507,6 +677,7 @@ impl Layout {
         backwards: bool,
     ) -> Option<usize> {
         let start = current.unwrap_or(if backwards { 0 } else { self.len - 1 });
+        let modal = self.modal_popup(view);
         (1..=self.len)
             .map(|offset| {
                 if backwards {
@@ -521,6 +692,8 @@ impl Layout {
                     && !self.nodes[*i].disabled
                     && self.nodes[*i].clip.width > 0
                     && self.nodes[*i].clip.height > 0
+                    // An open menu keeps focus among its own items.
+                    && modal.is_none_or(|m| *i != m && Self::popup_of(view, *i) == Some(m))
             })
     }
 }

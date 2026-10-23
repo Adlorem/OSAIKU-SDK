@@ -35,12 +35,28 @@ geometry and cached effect tables; the built-in native preset is `frame::STYLE`.
 They operate on caller-owned RAM; linking the library grants no display access
 or process isolation.
 
+`osaiku_ui::notice` provides a shared HTML/CSS message recipe and a bounded
+`text_model::Model` for its title, explanation, diagnostic detail and dismiss
+label. Hosts compile `notice::HTML` with `notice::CSS`, substituting the palette
+tokens `$SURFACE`, `$TEXT`, `$EDGE`, `$MUTED` and `$ACCENT`. The host handles
+`notice::DISMISS` and owns visibility. OSAIKU uses this component for shell-owned
+launch failures, including failures before an application can open a window.
+
+Native hosts with small stacks should use `Scene::prepare_in` with a reusable
+`layout::Workspace::EMPTY` beside their retained `Layout`. The hosted runtime
+already owns both under its raster guard. This moves 3 KiB of measurement and
+scroll arrays off the recursive layout stack; `Scene::prepare` remains available
+for callers with sufficient stack space.
+
 The experimental [native runtime foundation](docs/native-runtime.md) adds shared
 process addresses, endpoint-aware IPC, bounded application message routing,
 session-memory and teardown contracts,
 window metadata/codecs, typed UI submission and event reception,
 syscall traps, a public target/linker and an SDK-only native
-ELF example. The OS consumes that same source. The public single-window host
+ELF example. The OS consumes that same source. The [application package v1
+tools and contracts](docs/application-packages.md) add signed packages,
+publisher policy and signed repository indexes; runtime installation and
+catalog integration are still separate OS work. The public single-window host
 runtime and [window-hello](examples/window-hello/README.md) example cover
 HTML/CSS compilation, input, submission and session teardown. Deployment still
 requires an OS-admitted image; package registration is outside this subset.

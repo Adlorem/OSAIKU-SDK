@@ -19,8 +19,12 @@ pub use native::{run, run_with_surfaces};
 /// State must fit one session page with host metadata. View scratch belongs in
 /// bounded process-image storage, never a Document-sized stack temporary.
 pub trait WindowApplication: Sized {
-    const APP_ID: u64;
     fn new() -> Self;
+    /// Kernel-issued package/release/process identity, separate from each
+    /// window identity delivered by `submitted`. The record grants no rights.
+    fn launched(_context: &crate::launch::Context) -> Self {
+        Self::new()
+    }
     /// Poll bounded application-owned work, returning whether its view changed.
     fn poll(&mut self) -> bool {
         false
