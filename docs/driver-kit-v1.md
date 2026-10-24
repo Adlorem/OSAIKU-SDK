@@ -330,6 +330,11 @@ with a monotonically increasing one-use receipt in `Message.sequence`.
 process loss/rebind. The kernel additionally binds every operation to its exact
 process endpoint, instance and selected release. A storage endpoint cannot use
 input publication operations; an input endpoint cannot use block operations.
+The owner admits this channel with `Instance::admit_block`. After validating
+each one-use action it calls `block_progress`, reimbursing up to five calls
+(heartbeat/fetch/reply plus an optional idle heartbeat/fetch). This permits
+solicited bulk traffic without relaxing the 8192-call window for unsolicited
+traffic. A peer cannot refund its own calls or revive a quarantined instance.
 
 Event byte 0 is 1 (new command) or 2 (transfer completion). Commands encode LUN
 in byte 1, CDB length in byte 2, IN in byte 3, tag at 4, transfer length at 8,

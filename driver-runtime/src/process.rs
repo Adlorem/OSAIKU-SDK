@@ -202,6 +202,7 @@ pub struct Instance {
     window: u64,
     calls: u16,
     hid: bool,
+    block: bool,
     pub copies: Copies,
 }
 impl Instance {
@@ -217,12 +218,26 @@ impl Instance {
             window: now,
             calls: 0,
             hid: false,
+            block: false,
             copies: Copies::new(),
         }
     }
     /// Only the trusted owner may admit an input-role package.
     pub fn admit_hid(&mut self) {
         self.hid = true;
+    }
+    /// Trusted admission of the copied block-step channel.
+    pub fn admit_block(&mut self) {
+        self.block = true;
+    }
+    /// The transport owner calls this once after validating an outstanding
+    /// one-use receipt and its exact action. Reimburse that solicited step's
+    /// heartbeat/fetch/reply and optional empty fetch before sleeping. Idle or
+    /// duplicate traffic still consumes the finite per-window allowance.
+    pub fn block_progress(&mut self) {
+        if self.block && self.phase == Phase::Ready {
+            self.calls = self.calls.saturating_sub(5);
+        }
     }
     pub fn authorize(&mut self, role: Role, m: &Message, now: u64) -> Result<(), Error> {
         if self.poll(now, true) {
@@ -242,7 +257,13 @@ impl Instance {
             self.window = now;
             self.calls = 0;
         }
-        if self.calls >= if self.hid { 8192 } else { MAX_CALLS } {
+        if self.calls
+            >= if self.hid || self.block {
+                8192
+            } else {
+                MAX_CALLS
+            }
+        {
             self.fail(Failure::Flood);
             return Err(Error::Backpressure);
         }
@@ -271,8 +292,13 @@ impl Instance {
             {
                 ()
             }
-            op::HID_READ | op::HID_INPUT | op::BLOCK_FETCH | op::BLOCK_STEP
+            op::HID_READ | op::HID_INPUT
                 if self.hid && self.phase == Phase::Ready && role == Role::Driver =>
+            {
+                ()
+            }
+            op::BLOCK_FETCH | op::BLOCK_STEP
+                if self.block && self.phase == Phase::Ready && role == Role::Driver =>
             {
                 ()
             }

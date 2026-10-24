@@ -164,3 +164,56 @@ fn restart_has_no_replayed_work_or_inherited_ready() {
         .authorize(Role::Driver, &Message::new(op::HELLO, scope()), 31)
         .is_err());
 }
+
+#[test]
+fn solicited_block_steps_do_not_exhaust_idle_flood_allowance() {
+    let mut i = ready(Role::Driver);
+    i.admit_block();
+    for _ in 0..10_000 {
+        for operation in [
+            op::HEARTBEAT,
+            op::BLOCK_FETCH,
+            op::BLOCK_STEP,
+            op::HEARTBEAT,
+            op::BLOCK_FETCH,
+        ] {
+            i.authorize(Role::Driver, &Message::new(operation, scope()), 20)
+                .unwrap();
+        }
+        // Only a trusted owner holding the matching one-use receipt does this.
+        i.block_progress();
+    }
+    assert_eq!(i.phase, Phase::Ready);
+    let mut rejected = false;
+    for _ in 0..8193 {
+        if i.authorize(Role::Driver, &Message::new(op::BLOCK_FETCH, scope()), 20)
+            .is_err()
+        {
+            rejected = true;
+            break;
+        }
+    }
+    assert!(rejected);
+    assert_eq!(i.failure, Failure::Flood);
+    i.block_progress();
+    assert_eq!(i.phase, Phase::Quarantined);
+}
+
+#[test]
+fn block_and_input_admissions_are_separate() {
+    let mut input = ready(Role::Driver);
+    input.admit_hid();
+    assert_eq!(
+        input.authorize(Role::Driver, &Message::new(op::BLOCK_FETCH, scope()), 20),
+        Err(Error::Permission)
+    );
+    let mut block = ready(Role::Driver);
+    block.admit_block();
+    assert_eq!(
+        block.authorize(Role::Driver, &Message::new(op::HID_READ, scope()), 20),
+        Err(Error::Permission)
+    );
+    block
+        .authorize(Role::Driver, &Message::new(op::BLOCK_FETCH, scope()), 20)
+        .unwrap();
+}
