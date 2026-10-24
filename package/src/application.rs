@@ -62,16 +62,27 @@ impl<'a> Component<'a> {
 pub struct Manifest<'a> {
     bytes: &'a [u8],
     descriptors: &'a [u8],
+    domain: Domain,
 }
 impl<'a> Manifest<'a> {
     /// Parse metadata separately from large image bytes. Offsets are absolute
     /// within the envelope; exact component bytes are checked by the verifier.
     pub fn parse(bytes: &'a [u8], object_bytes: u64) -> Result<Self, Error> {
+        Self::parse_for(bytes, object_bytes, Domain::Application)
+    }
+    /// Domain is selected by the trusted owner, never inferred from a role field.
+    pub fn parse_for(bytes: &'a [u8], object_bytes: u64, domain: Domain) -> Result<Self, Error> {
+        if !matches!(domain, Domain::Application | Domain::Driver) {
+            return Err(Error::Format);
+        }
         if bytes.len() < MANIFEST_BYTES || bytes.len() > MAX_METADATA_BYTES {
             return Err(Error::Length);
         }
         let version = u32_at(bytes, 8);
-        if &bytes[..8] != b"OSAMNF01" || !matches!(version, 1 | 2) {
+        if (domain == Domain::Application
+            && (&bytes[..8] != b"OSAMNF01" || !matches!(version, 1 | 2)))
+            || (domain == Domain::Driver && (&bytes[..8] != b"OSADMF01" || version != 1))
+        {
             return Err(Error::Format);
         }
         if u32_at(bytes, 12) as usize != bytes.len() {
@@ -82,7 +93,12 @@ impl<'a> Manifest<'a> {
         if count == 0 || count > MAX_RESOURCES + 1 || compatibility_len > compatibility::MAX_BYTES {
             return Err(Error::Limit);
         }
-        let table = (MANIFEST_BYTES + compatibility_len + 7) & !7;
+        let extra = if domain == Domain::Driver {
+            crate::driver::extension(bytes)?
+        } else {
+            0
+        };
+        let table = ((MANIFEST_BYTES + compatibility_len + 7) & !7) + extra;
         if table + count * DESCRIPTOR_BYTES != bytes.len() {
             return Err(Error::Length);
         }
@@ -90,8 +106,10 @@ impl<'a> Manifest<'a> {
             &bytes[MANIFEST_BYTES..MANIFEST_BYTES + compatibility_len],
         )
         .map_err(|_| Error::Compatibility)?;
-        zero(&bytes[MANIFEST_BYTES + compatibility_len..table])?;
-        if version == 1 {
+        zero(&bytes[MANIFEST_BYTES + compatibility_len..table - extra])?;
+        if domain == Domain::Driver {
+            crate::driver::validate_records(bytes, table - extra, table)?;
+        } else if version == 1 {
             zero(&bytes[448..512])?;
         } else {
             if usize::from(u16_at(bytes, 448)) >= category::NAMES.len() {
@@ -116,7 +134,13 @@ impl<'a> Manifest<'a> {
         let width = u16_at(bytes, 56);
         let height = u16_at(bytes, 58);
         if u64_at(bytes, 16) == 0
-            || u64_at(bytes, 24) & !permission::KNOWN != 0
+            || u64_at(bytes, 24)
+                & !(if domain == Domain::Driver {
+                    crate::driver::RESOURCES
+                } else {
+                    permission::KNOWN
+                })
+                != 0
             || !(4096..=MAX_MEMORY_BYTES).contains(&u64_at(bytes, 32))
             || !(1..=MAX_RESOURCE_BYTES).contains(&u64_at(bytes, 40))
             || !(1..=16).contains(&u16_at(bytes, 48))
@@ -144,8 +168,14 @@ impl<'a> Manifest<'a> {
             let c = Component { record };
             let limit = match c.kind() {
                 1 if i == 0 && name == "executable" => MAX_ELF_BYTES,
-                2 if i > 0 => MAX_RESOURCE_BYTES,
-                3 if i > 0 && !icon => {
+                2 if i > 0 => {
+                    if domain == Domain::Driver {
+                        crate::driver::MAX_FIRMWARE_BYTES
+                    } else {
+                        MAX_RESOURCE_BYTES
+                    }
+                }
+                3 if i > 0 && !icon && domain == Domain::Application => {
                     icon = true;
                     MAX_ICON_BYTES
                 }
@@ -169,7 +199,17 @@ impl<'a> Manifest<'a> {
         if end != object_bytes || end > MAX_PACKAGE_BYTES {
             return Err(Error::Layout);
         }
-        Ok(Self { bytes, descriptors })
+        Ok(Self {
+            bytes,
+            descriptors,
+            domain,
+        })
+    }
+    pub fn domain(&self) -> Domain {
+        self.domain
+    }
+    pub fn raw_metadata(&self) -> &'a [u8] {
+        self.bytes
     }
     pub fn id(&self) -> &'a str {
         text(&self.bytes[64..192]).unwrap()
@@ -249,10 +289,13 @@ pub struct Package<'a> {
 }
 impl<'a> Package<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
+        Self::parse_for(bytes, Domain::Application)
+    }
+    pub fn parse_for(bytes: &'a [u8], domain: Domain) -> Result<Self, Error> {
         let envelope = Envelope::parse(
             bytes.get(..HEADER_BYTES).ok_or(Error::Length)?,
             bytes.len() as u64,
-            Domain::Application,
+            domain,
         )?;
         let prefix = bytes
             .get(HEADER_BYTES..HEADER_BYTES + MANIFEST_BYTES)
@@ -264,7 +307,7 @@ impl<'a> Package<'a> {
         let metadata = bytes
             .get(HEADER_BYTES..HEADER_BYTES + length)
             .ok_or(Error::Length)?;
-        let manifest = Manifest::parse(metadata, bytes.len() as u64)?;
+        let manifest = Manifest::parse_for(metadata, bytes.len() as u64, domain)?;
         let mut end = HEADER_BYTES + length;
         for component in manifest.components() {
             let start = component.offset() as usize;
@@ -293,7 +336,15 @@ impl<'a> Package<'a> {
         self.envelope.key_id()
     }
     pub fn verify(self, policy: &TrustPolicy<'_>) -> Result<VerifiedPackage<'a>, Error> {
-        let sha256 = verify_bytes(self.bytes, Domain::Application, policy)?;
+        let sha256 = verify_bytes(self.bytes, self.manifest.domain, policy)?;
+        if self.manifest.domain == Domain::Driver {
+            crate::driver::authorize(
+                policy,
+                self.envelope.key_id(),
+                self.envelope.epoch(),
+                &self.manifest,
+            )?;
+        }
         Ok(VerifiedPackage {
             package: self,
             sha256,

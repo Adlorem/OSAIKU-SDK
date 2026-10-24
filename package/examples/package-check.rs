@@ -50,8 +50,13 @@ fn run() -> Result<(), String> {
     )?;
     let err = |e: Error| format!("{e:?}");
     match command {
-        "inspect" | "verify" => {
-            let package = Package::parse(&bytes).map_err(err)?;
+        "inspect" | "verify" | "inspect-driver" | "verify-driver" => {
+            let package = if command.ends_with("-driver") {
+                driver::parse(&bytes)
+            } else {
+                Package::parse(&bytes)
+            }
+            .map_err(err)?;
             println!(
                 "id={}\nname={:?}\nversion={}\nrelease={}\npublisher={}\nbytes={}\nsha256={}",
                 package.manifest().id(),
@@ -62,8 +67,16 @@ fn run() -> Result<(), String> {
                 bytes.len(),
                 hex(&digest(&bytes))
             );
-            println!("category={}", package.manifest().category_name());
-            if command == "verify" {
+            if command.ends_with("-driver") {
+                println!(
+                    "classes={}\nresources={}",
+                    driver::classes(package.manifest()).map_err(err)?,
+                    package.manifest().permissions()
+                );
+            } else {
+                println!("category={}", package.manifest().category_name());
+            }
+            if command == "verify" || command == "verify-driver" {
                 let policy_bytes = read(arg(2)?, policy::MAX_BYTES as u64)?;
                 let policy = PolicyDocument::parse(&policy_bytes).map_err(err)?;
                 let verified = package.verify(&policy.policy()).map_err(err)?;

@@ -422,7 +422,7 @@ fn public_policy_record_cannot_reinterpret_status_domain_or_duplicate_keys() {
         bad[offset] = 1;
         assert!(PolicyDocument::parse(&bad).is_err());
     }
-    for (offset, value) in [(64, 0), (64, 4), (65, 2)] {
+    for (offset, value) in [(64, 0), (64, 8), (65, 2)] {
         let mut bad = bytes.clone();
         bad[offset] = value;
         assert!(PolicyDocument::parse(&bad).is_err());

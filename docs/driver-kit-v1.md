@@ -203,3 +203,7 @@ Use `python tools/check-driver-kit.py --target --guest-output <ELF>` for the
 independent negative guest, or add `--oversize` for loader-budget refusal. Both
 live exclusively in `tests/driver-kit-client`, are excluded from production base
 images and require a separately signed disposable QEMU fixture to execute.
+
+DRV-07 distribution, publisher roles and durable selection are specified in
+[Driver packages v1](driver-packages-v1.md). Hardware class migration supplies
+the live admission facts; installing a package does not itself start a driver.

@@ -6,6 +6,7 @@
 
 pub mod application;
 pub mod compatibility;
+pub mod driver;
 pub mod policy;
 pub mod repository;
 pub mod system;
@@ -24,6 +25,10 @@ pub enum Domain {
     Application,
     Repository,
     System,
+    Driver,
+    DriverInput,
+    DriverStorage,
+    DriverController,
 }
 impl Domain {
     pub fn magic(self) -> &'static [u8; 8] {
@@ -31,6 +36,10 @@ impl Domain {
             Self::Application => b"OSAPPK01",
             Self::Repository => b"OSAIDX01",
             Self::System => b"OSASYS01",
+            Self::Driver => b"OSADRV01",
+            Self::DriverInput => b"OSADIN01",
+            Self::DriverStorage => b"OSADST01",
+            Self::DriverController => b"OSADCT01",
         }
     }
     pub fn signature_domain(self) -> &'static [u8] {
@@ -38,6 +47,10 @@ impl Domain {
             Self::Application => b"OSAIKU/application-package/v1\0",
             Self::Repository => b"OSAIKU/repository-index/v1\0",
             Self::System => b"OSAIKU/system-release/v1\0",
+            Self::Driver => b"OSAIKU/driver-package/v1\0",
+            Self::DriverInput => b"OSAIKU/driver-input/v1\0",
+            Self::DriverStorage => b"OSAIKU/driver-storage/v1\0",
+            Self::DriverController => b"OSAIKU/driver-controller/v1\0",
         }
     }
 }
