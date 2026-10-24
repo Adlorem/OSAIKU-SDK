@@ -27,6 +27,8 @@ pub mod op {
     pub const APPROVE: u64 = 12;
     pub const HID_READ: u64 = 13;
     pub const HID_INPUT: u64 = 14;
+    pub const BLOCK_FETCH: u64 = 15;
+    pub const BLOCK_STEP: u64 = 16;
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -269,7 +271,7 @@ impl Instance {
             {
                 ()
             }
-            op::HID_READ | op::HID_INPUT
+            op::HID_READ | op::HID_INPUT | op::BLOCK_FETCH | op::BLOCK_STEP
                 if self.hid && self.phase == Phase::Ready && role == Role::Driver =>
             {
                 ()

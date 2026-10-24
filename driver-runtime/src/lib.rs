@@ -6,10 +6,21 @@
 //! A trusted host retains these ledgers; peer messages cannot instantiate or
 //! replace its entries. No Drop operation claims that DMA has stopped.
 pub use osaiku_driver_protocol as protocol;
+pub mod block;
+#[forbid(unsafe_code)]
+pub mod block_io;
+#[forbid(unsafe_code)]
+pub mod block_process;
+#[forbid(unsafe_code)]
+pub mod block_queue;
+#[forbid(unsafe_code)]
+pub mod class;
 #[forbid(unsafe_code)]
 pub mod hid;
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
 pub mod native;
+#[forbid(unsafe_code)]
+pub mod nvme;
 #[forbid(unsafe_code)]
 pub mod process;
 #[forbid(unsafe_code)]

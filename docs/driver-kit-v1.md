@@ -296,3 +296,50 @@ The native clients retain the existing Set 1 vocabulary and standard relative
 pointer mode. Extended touchpad modes and I2C-HID are not implemented. Linux
 reference algorithms were compared, not copied; existing Redox notices apply
 to the relocated bootstrap/protocol code unchanged.
+
+## Block class and mediated BOT process (DRV-10)
+
+`block` defines backend-independent geometry, identities, relative ranges,
+sealed requests and completion ownership. `block_queue::Queue<N, B>` adds an
+owned byte copy for each bounded asynchronous request. Admission validates the
+owner-provided write range before dispatch. It serializes backend operations,
+orders write/flush, rejects stale generations and preserves uncertain requests
+until the trusted transport owner proves hardware stopped. A caller's cancel,
+timeout or process death is never such a proof. New media require a new identity.
+
+Read fragments are copied in order and published only after complete success.
+Submitted writes and flushes with errors return `UnknownCommit`, stop admission
+and cannot be replayed. Durability distinguishes volatile RAM, device cache and
+acknowledged stable storage according to the advertised device capability; the
+last category is a device protocol acknowledgement, not physical qualification.
+The OS independently reports physical persistence as unverified. Queue storage
+is static and bounded by N × B plus metadata; no borrowed buffer is retained.
+
+`block_io::Media` is the synchronous compatibility view used by FAT and existing
+storage clients. It must consume each slice before returning, including failure.
+The current OS adapters retain this interface while USB transfers use copied
+owner buffers internally. The async queue is available to clients that adopt
+owned asynchronous requests; its presence does not make the legacy filesystem
+call stack asynchronous. NVMe protocol/deadline code is also shared by Driver Kit;
+NVMe controller ownership remains in the trusted OS until DRV-14.
+
+`class::Kind::UsbStorage` is kind 5. `hid::Kind` remains an alias for compatibility.
+BLOCK_FETCH (15) / BLOCK_STEP (16) carry a copied 64-byte protocol event/action,
+with a monotonically increasing one-use receipt in `Message.sequence`.
+`block_process::Channel` rejects late replies, duplicates and a reply crossing
+process loss/rebind. The kernel additionally binds every operation to its exact
+process endpoint, instance and selected release. A storage endpoint cannot use
+input publication operations; an input endpoint cannot use block operations.
+
+Event byte 0 is 1 (new command) or 2 (transfer completion). Commands encode LUN
+in byte 1, CDB length in byte 2, IN in byte 3, tag at 4, transfer length at 8,
+and 16-byte CDB at 16. Completions encode status in byte 1, actual length at 4,
+and CSW bytes at 16 when applicable. Actions encode the BOT stage in byte 0
+and exact 31-byte CBW at 1 for the CBW stage. All other bytes are zero.
+The mediator owns the original request/data and checks the returned action;
+the process never supplies an address or a new range to the controller.
+
+Storage role and a valid signature do not authorize arbitrary disk access. The
+host retains partition/grant checks; a direct controller owner must still be
+trusted for whole-medium integrity even with IOMMU protection. Tests remain in
+the separate `driver-runtime/tests/block_queue.rs` and `block_process.rs` files.
