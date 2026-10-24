@@ -1,15 +1,13 @@
-# Driver Kit v1 (DRV-01)
+# Driver Kit v1 (DRV-01 and DRV-06)
 
 `osaiku-driver-protocol` and `osaiku-driver-runtime` are public, dependency-minimal
-`no_std` Rust crates. Both forbid unsafe code; runtime depends only on protocol.
+`no_std` Rust crates. Protocol and the owner-side process contracts forbid unsafe code. Runtime depends only on protocol; its freestanding `native` module contains the small x86 syscall boundary.
 They have no OS checkout, private ABI, UI, allocator or hardware dependency.
 Rust structs and traits are local APIs, **not** a cross-process Rust ABI.
 The initial production consumer is the OS's trusted NVMe DMA owner. A separate
 client fixture lives under `tests/driver-kit-client`, never in a production image.
 
-This stage supplies contracts, not a process launcher, device manager, package
-signature policy, hardware syscalls or IOMMU isolation. Those belong to subsequent
-DRV stages. A manifest, decoded handle or valid signature cannot allocate hardware.
+DRV-06 supplies a native mediated transport and a kernel-owned headless process profile. Package signature policy and direct hardware/IOMMU grants remain later stages. A manifest, decoded handle or valid signature cannot allocate hardware.
 
 ## Build profile and independence
 
@@ -24,8 +22,7 @@ python tools/check-driver-kit.py --target
 The second command copies only the two crates, public target and separate client
 fixture into a temporary directory outside the SDK/OS. It checks the complete
 Cargo dependency graph, runs the client contract, and builds its host and no_std
-libraries. Its native invocation is `cargo build --release --offline --locked
--Zbuild-std=core -Zjson-target-spec --target <public-target.json>`.
+libraries plus a separate guest executable. Its native invocation is `cargo build --release --offline --locked --features guest -Zbuild-std=core,compiler_builtins -Zbuild-std-features=compiler-builtins-mem -Zjson-target-spec --target <public-target.json>`.
 The temporary directory must not be inside either checkout. No private include,
 path dependency or implicit kernel target is part of the Driver Kit profile.
 
@@ -149,3 +146,60 @@ stop verification are not substituted by these state machines.
 
 All regression tests live in `driver-*/tests` or the external client fixture.
 Production sources have no test methods, failure hooks or test-only switches.
+
+## DRV-06 native process transport
+
+`driver_runtime::native::{identity, exchange, wait, exit}` is available only for
+`x86_64` / `target_os=none`. No OS crate or UI runtime is needed. `identity()`
+returns the host-issued scope, release and endpoint, plus role in `value` (1 is
+manager, 2 is driver). Clear `value`, send HELLO then READY after initialization.
+The channel accepts version 1 exactly. READY publishes only the admitted channel;
+it cannot create an endpoint, change the selected release or grant hardware.
+
+Syscall 400 uses RDI=0 for exchange, RSI points to one exclusively borrowed
+384-byte record, RDX=384, R8/R9=0. RDI=2 obtains identity in the same record;
+RDI=1 with other arguments zero is reserved to initd for manager startup.
+The kernel verifies role and its issued process endpoint before touching the
+buffer, collects other user CPUs, then copies the entire record once. No user
+pointer survives the call. `wait()` uses the existing timed event receiver with
+a 100 ms deadline; it does not spin or create a scheduler.
+
+The wire magic is `ODPROC01` at 0. Ten little-endian u64 fields follow at offset
+8: operation, device, connection, instance, release, endpoint, sequence, offset,
+length, value. Bytes 88..128 must be zero; bytes 128..384 hold copied data.
+Offsets/lengths address that 256-byte payload and use checked addition. Metadata
+is kernel-owned and separate from queued payloads. See `process::op` for operation
+numbers. Applications cannot select this role by package name, PID or manifest.
+
+The initial driver endpoint is **read-only device status**: SUBMIT requires zero
+offset/length/value, returns an owner-issued sequence, and TAKE returns 16 bytes
+(state and selected running release). CANCEL consumes only that copied receipt.
+Eight receipts fit per instance; a ninth receives backpressure. Arbitrary hardware
+commands, writes, user completions, shared buffers, MMIO, port access, DMA and IRQ
+registration are denied. Hardware class migrations add approved endpoints in
+later stages; this endpoint is not a raw hardware control API.
+
+The manager can SNAPSHOT the actual bus registry, RECONCILE retained platform
+owners, APPROVE the kernel-selected device/release, START the authenticated
+headless image for a device status endpoint and query retained STATUS failures.
+An initial snapshot has sequence/value zero; replies carry next cursor/revision
+and up to four 48-byte rows: device, connection, selected driver, selected release,
+class endpoint, state. APPROVE supplies the first 32 bytes of one row. START
+supplies only device/connection (16 bytes). STATUS holds five failure/attempt byte
+pairs, then five active bytes. Failed device generations must never be replayed.
+
+The profile admits one manager plus four clients, three lifetime launch attempts
+per binding, image <=64 frames, page tables <=16 and stack <=4, all through the
+existing charged allocator and protected reserve. CPU shares remain in the
+System scheduling class; no peer IRQ budget exists because IRQ grants are zero.
+Start deadline is 5 s, driver heartbeat deadline 3 s, manager 15 s, and each peer
+has 128 admitted messages per second. Failures and attempt counts survive process
+restart in the kernel until reboot. Watchdog runs on collected timer/trap/idle
+boundaries even for a looping process. Admission and copies close before process
+retirement. This copy-only profile owns no DMA; trusted platform leases never
+retire because a peer died or claimed Stopped. No uncertain write is replayed.
+
+Use `python tools/check-driver-kit.py --target --guest-output <ELF>` for the
+independent negative guest, or add `--oversize` for loader-budget refusal. Both
+live exclusively in `tests/driver-kit-client`, are excluded from production base
+images and require a separately signed disposable QEMU fixture to execute.

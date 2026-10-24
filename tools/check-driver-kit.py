@@ -17,6 +17,8 @@ import tempfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', action='store_true')
+    parser.add_argument('--guest-output', type=Path)
+    parser.add_argument('--oversize', action='store_true')
     args = parser.parse_args()
     sdk = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix='osaiku-driver-kit-') as temporary:
@@ -52,7 +54,10 @@ def main():
         run('cargo','test','--manifest-path','client/Cargo.toml','--offline','--locked')
         if args.target:
             run('cargo','build','--manifest-path','client/Cargo.toml','--release','--offline','--locked',
-                '-Zbuild-std=core','-Zjson-target-spec','--target',str(root/'targets/x86_64-osaiku-user.json'))
+                '-Zbuild-std=core,compiler_builtins','-Zbuild-std-features=compiler-builtins-mem','-Zjson-target-spec','--features','oversize' if args.oversize else 'guest','--target',str(root/'targets/x86_64-osaiku-user.json'))
+            if args.guest_output:
+                args.guest_output.resolve().parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(root/'target/x86_64-osaiku-user/release/driver-process-fixture', args.guest_output.resolve())
         print(json.dumps(dict(passed=True, independent=True, packages=sorted(names), no_std_target=args.target)))
 
 

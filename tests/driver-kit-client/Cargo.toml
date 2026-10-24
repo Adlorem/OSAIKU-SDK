@@ -12,3 +12,13 @@ osaiku-driver-runtime = { path = "../driver-runtime" }
 
 [profile.release]
 panic = "abort"
+
+[features]
+guest = []
+oversize = ["guest"]
+[[bin]]
+name = "driver-process-fixture"
+path = "src/guest.rs"
+required-features = ["guest"]
+test = false
+bench = false

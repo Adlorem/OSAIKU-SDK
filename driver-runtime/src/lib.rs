@@ -1,10 +1,15 @@
 #![no_std]
-#![forbid(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
-//! Owner-side contracts, not a syscall transport or hardware authority.
+//! Owner-side contracts and a native copied-message transport.
+//! Neither a local contract value nor a syscall number confers hardware authority.
 //! A trusted host retains these ledgers; peer messages cannot instantiate or
 //! replace its entries. No Drop operation claims that DMA has stopped.
 pub use osaiku_driver_protocol as protocol;
+#[cfg(all(target_arch = "x86_64", target_os = "none"))]
+pub mod native;
+#[forbid(unsafe_code)]
+pub mod process;
 use protocol::{BufferRange, EndpointId, Error, RequestId, ResourceHandle, Scope, Sequence};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
