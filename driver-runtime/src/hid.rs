@@ -3,14 +3,22 @@
 pub enum Kind {
     Keyboard = 1,
     Mouse = 2,
+    Ps2Keyboard = 3,
+    Ps2Pointer = 4,
 }
 impl Kind {
+    pub const ALL: [Self; 4] = [
+        Self::Keyboard,
+        Self::Mouse,
+        Self::Ps2Keyboard,
+        Self::Ps2Pointer,
+    ];
     pub const fn index(self) -> usize {
         self as usize - 1
     }
     pub const fn report_bytes(self) -> usize {
         match self {
-            Self::Keyboard => 8,
+            Self::Keyboard | Self::Ps2Keyboard | Self::Ps2Pointer => 8,
             Self::Mouse => 3,
         }
     }

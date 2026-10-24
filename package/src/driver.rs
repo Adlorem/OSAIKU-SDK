@@ -38,7 +38,7 @@ pub(crate) fn validate_records(b: &[u8], start: usize, end: usize) -> Result<(),
     let split = usize::from(u16_at(b, 470)) * MATCH_BYTES;
     let mut previous: Option<&[u8]> = None;
     for r in records[..split].chunks_exact(MATCH_BYTES) {
-        if !matches!(u16_at(r, 0), 1 | 2) || previous.is_some_and(|p| p >= r) {
+        if !matches!(u16_at(r, 0), 1 | 2 | 3) || previous.is_some_and(|p| p >= r) {
             return Err(Error::Manifest);
         }
         zero(&r[14..])?;

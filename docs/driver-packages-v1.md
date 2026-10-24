@@ -135,3 +135,11 @@ the separate A2-R writable-recovery qualification.
 Tests reside in `package/tests/driver_packages.rs`,
 `tools/test_driver_package.py`, and the OS's `abi/tests/support/osaifs_v3_drivers.rs`.
 Production code contains no test entry points, fault switches or inline tests.
+
+
+DRV-09 adds match bus `i8042` (wire value 3). Trusted facts are
+`[0, 0, class, 0, 0, 0]`, where class 1 is the keyboard and class 2 is AUX.
+Only the controller's successful presence/bring-up observation creates these
+facts; a package match cannot create a device. PCI/USB match values are unchanged.
+The installed PS/2 clients use the same signed catalog, lease, image loader,
+input-role publisher policy and bounded process supervisor as USB HID.

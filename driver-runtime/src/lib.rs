@@ -12,6 +12,12 @@ pub mod hid;
 pub mod native;
 #[forbid(unsafe_code)]
 pub mod process;
+#[forbid(unsafe_code)]
+pub mod ps2;
+#[forbid(unsafe_code)]
+pub mod ps2_pointer;
+#[forbid(unsafe_code)]
+pub mod set1;
 use protocol::{BufferRange, EndpointId, Error, RequestId, ResourceHandle, Scope, Sequence};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

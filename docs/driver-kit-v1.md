@@ -259,3 +259,40 @@ requires a neutral report. Existing layout limitations and lack of LED output
 are preserved; full report-descriptor parsing, NKRO and mouse wheels are outside
 this profile. Independent sample packages live in the OS's `drivers/usb-*`
 directories, and compile outside the OS checkout with only Driver Kit dependencies.
+
+
+## Installed i8042 clients (DRV-09)
+
+Copied input endpoint kinds 3 and 4 identify the controller-authenticated
+translated Set 1 keyboard and standard relative AUX pointer. They reuse the
+owner/connection/instance/release checks and one-use receipt of HID_READ (13)
+and HID_INPUT (14); the operation numbers remain unchanged. No client can
+register a source or request a port address. USB endpoint kinds 1/2 are unchanged.
+
+A pointer record is eight bytes: byte, status (0=data, 1=wire error, 2=pointer timer),
+packet length 3, reserved zero, low 32 bits of monotonic milliseconds in little
+endian. `ps2::Clock` extends the wire clock. A keyboard record is eight bytes:
+count (1/2/6), damaged flag, and six zero-padded bytes of a complete Set 1
+sequence. The controller retains prefix framing across owner replacement;
+`ps2::keyboard` decodes the copied sequence. Keyboard output is one encoded
+physical `hid::Poll` (two bytes). AUX output is eight bytes: signed i16 X/Y,
+buttons, action, command, reserved zero. `ps2::response` and `valid_response`
+define the action encoding. Pointer timer records use the same one-use receipt;
+they cannot grant a keyboard or another process permission to publish input.
+
+The controller performs initial identification and synchronizes AUX before
+every owner replacement with the existing bounded SDK recovery machine.
+It then routes raw bytes exclusively to the installed parser. Commands FF,
+E8/03 and F4 are device commands behind a stateful allowlist, bounded to
+32 per second and three device resets per grant. The reset of an uncertain
+command boundary belongs to the trusted controller, never a new client.
+No controller configuration, output-port write, arbitrary PIO or platform
+reset operation is exposed. Kernel power admission blocks new commands.
+Caps LEDs stay with the common keyboard consumer and an asynchronous
+controller-owned ACK/RESEND exchange; ambiguous timeout quarantines LED
+writes until reboot while ordinary keyboard capture remains available.
+
+The native clients retain the existing Set 1 vocabulary and standard relative
+pointer mode. Extended touchpad modes and I2C-HID are not implemented. Linux
+reference algorithms were compared, not copied; existing Redox notices apply
+to the relocated bootstrap/protocol code unchanged.

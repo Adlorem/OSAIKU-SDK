@@ -125,3 +125,19 @@ fn dependency_graph_rejects_cycles_and_out_of_set_edges() {
     assert!(!driver::acyclic(&[1]));
     assert!(!driver::acyclic(&[8, 0]));
 }
+
+#[test]
+fn i8042_match_is_distinct_from_usb_and_pci() {
+    let mut b = package("example.ps2", 1, 1, &[], false);
+    p16(&mut b, 192 + 544, 3);
+    p16(&mut b, 192 + 550, 2);
+    resign(&mut b);
+    let parsed = driver::parse(&b).unwrap();
+    let m = parsed.manifest();
+    assert!(driver::matches(m, 3, [0, 0, 2, 0, 0, 0]));
+    assert!(!driver::matches(m, 2, [0, 0, 2, 0, 0, 0]));
+    assert!(!driver::matches(m, 3, [0, 0, 1, 0, 0, 0]));
+    p16(&mut b, 192 + 544, 4);
+    resign(&mut b);
+    assert!(driver::parse(&b).is_err());
+}

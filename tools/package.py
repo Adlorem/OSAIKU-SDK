@@ -147,7 +147,7 @@ def pack(config, base, key, driver=False):
         rules = []
         for r in config["matches"]:
             fields(r, ("bus", "vendor", "device", "class", "subclass", "protocol", "interface"), ("bus",))
-            rules.append(struct.pack("<7H18x", {"pci": 1, "usb": 2}[r["bus"]], *(r.get(f, 65535) for f in ("vendor", "device", "class", "subclass", "protocol", "interface"))))
+            rules.append(struct.pack("<7H18x", {"pci": 1, "usb": 2, "i8042": 3}[r["bus"]], *(r.get(f, 65535) for f in ("vendor", "device", "class", "subclass", "protocol", "interface"))))
         dependencies = []
         for r in config.get("dependencies", []):
             fields(r, ("publisher", "id", "release", "digest"), ("publisher", "id", "release", "digest"))
