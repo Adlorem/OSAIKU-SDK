@@ -203,6 +203,7 @@ pub struct Instance {
     calls: u16,
     hid: bool,
     block: bool,
+    controller: bool,
     pub copies: Copies,
 }
 impl Instance {
@@ -219,6 +220,7 @@ impl Instance {
             calls: 0,
             hid: false,
             block: false,
+            controller: false,
             copies: Copies::new(),
         }
     }
@@ -229,6 +231,10 @@ impl Instance {
     /// Trusted admission of the copied block-step channel.
     pub fn admit_block(&mut self) {
         self.block = true;
+    }
+    /// Only the platform admits this endpoint after DRV-11 assignment.
+    pub fn admit_controller(&mut self) {
+        self.controller = true;
     }
     /// The transport owner calls this once after validating an outstanding
     /// one-use receipt and its exact action. Reimburse that solicited step's
@@ -258,7 +264,7 @@ impl Instance {
             self.calls = 0;
         }
         if self.calls
-            >= if self.hid || self.block {
+            >= if self.hid || self.block || self.controller {
                 8192
             } else {
                 MAX_CALLS
@@ -269,6 +275,13 @@ impl Instance {
         }
         self.calls += 1;
         match m.operation {
+            crate::controller::IO | crate::controller::FETCH | crate::controller::COMPLETE
+                if self.controller
+                    && role == Role::Driver
+                    && matches!(self.phase, Phase::Initializing | Phase::Ready) =>
+            {
+                ()
+            }
             op::HELLO if self.phase == Phase::Starting => {
                 self.phase = Phase::Initializing;
             }

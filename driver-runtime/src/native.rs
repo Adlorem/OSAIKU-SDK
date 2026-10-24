@@ -29,6 +29,10 @@ pub fn exchange(message: &Message) -> Result<Message, isize> {
 }
 /// Event-driven wait with a bounded deadline; unsolicited messages confer no authority.
 pub fn wait() {
+    wait_for(100_000);
+}
+/// Microsecond deadline, bounded by the owner's heartbeat window.
+pub fn wait_for(microseconds: u64) {
     let mut bytes = [0u8; 16];
     let mut endpoint = [0u32; 2];
     let _ = invoke(
@@ -37,7 +41,7 @@ pub fn wait() {
             bytes.as_mut_ptr() as u64,
             16,
             endpoint.as_mut_ptr() as u64,
-            100_000,
+            microseconds.clamp(1, 100_000),
             0,
         ],
     );

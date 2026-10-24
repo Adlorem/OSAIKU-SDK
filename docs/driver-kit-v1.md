@@ -348,3 +348,34 @@ Storage role and a valid signature do not authorize arbitrary disk access. The
 host retains partition/grant checks; a direct controller owner must still be
 trusted for whole-medium integrity even with IOMMU protection. Tests remain in
 the separate `driver-runtime/tests/block_queue.rs` and `block_process.rs` files.
+
+
+## Admitted xHCI controller process (DRV-12)
+
+`controller` adds endpoint 6 operations IO=17, FETCH=18 and COMPLETE=19 to
+existing process messages. Only a platform-admitted controller instance may
+use them. Request payloads are canonical 64-byte records; replies are 32 bytes.
+The kernel assigns monotonic receipts and checks controller generation, target,
+length and single consumption. Queue slots are dispatched in receipt order.
+Class HID/BOT messages and USB-core endpoint handles are unchanged.
+
+`controller_io::Gate` accepts offsets in an observed register inventory and
+IOVA addresses in one retained 344064-byte arena. It exposes no PCI writes,
+physical allocator, IRQ destination or arbitrary mapping. MSI-X table/PBA pages
+are excluded entirely. Data copies are at most 256 bytes per call; shared user
+pages are not implemented in this profile. READ/WRITE_REGISTER, READ/WRITE_ARENA,
+PUBLISH, ACQUIRE, CLOCK and GRANT are mediated operations, not capabilities to
+perform raw CPU I/O. Failed retirement closes access even if hardware stop
+cannot be confirmed; platform ownership must remain retained.
+
+The OS example is `drivers/xhci`, built independently with only this runtime
+and driver-protocol. Firmware ownership, PCI discovery, isolation, remapped IRQ
+and reset/power-group qualification remain prerequisites supplied by a trusted
+platform owner. The native allowlist currently admits no physical platform.
+A manifest requesting `iommu` does not grant one. Replacing the signed package
+requires no kernel rebuild, but activation needs qualified native admission.
+
+Native `wait_for` accepts microseconds (1..100000). xHCI waits for IRQ, queued
+work or the nearest operation deadline; heartbeat wakeups do not scan MMIO.
+Failure invalidates all children of the controller generation. The initial
+native policy stages replacement and recovery for reboot, retaining the group.

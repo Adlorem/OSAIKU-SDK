@@ -16,6 +16,10 @@ pub mod block_queue;
 #[forbid(unsafe_code)]
 pub mod class;
 #[forbid(unsafe_code)]
+pub mod controller;
+#[forbid(unsafe_code)]
+pub mod controller_io;
+#[forbid(unsafe_code)]
 pub mod hid;
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
 pub mod native;
