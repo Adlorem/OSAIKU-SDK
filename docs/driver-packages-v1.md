@@ -108,10 +108,11 @@ Installation creates an inactive retained version. A separate protected choice
 binds full digest, requested resources/classes, policy epoch and catalog revision.
 The activation catalog atomically publishes a consistent selection and monotonic
 generation. States include Installed, NoDevice, PendingRestart, Trial, Active,
-Disabled and Removed. The protected broker currently records NoDevice or
-PendingRestart; actual packaged hardware class launch and Ready confirmation are
-connected by the migration stages starting with DRV-08. It never reports an
-unlaunched package as active. Internal APIs for trial, confirmation and launch
+Disabled and Removed. The protected broker records NoDevice or PendingRestart until a supported
+class owner has admitted the exact selection. DRV-08 connects Boot HID Input
+packages to the shared charged image reader/ELF loader, process handshake and
+Trial/Active confirmation. Other hardware classes remain pending their migration.
+An unlaunched package is never reported as active. Internal APIs for trial, confirmation and launch
 pinning reverify exact bytes and current trust, including dependency versions.
 
 Previous versions remain retained during trial. Rollback needs an explicit

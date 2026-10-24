@@ -143,3 +143,23 @@ pub fn acyclic(graph: &[u64]) -> bool {
     }
     !(0..graph.len()).any(|i| closure[i] & (1 << i) != 0)
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Requirements {
+    pub cpu_permille: u32,
+    pub irq_per_second: u32,
+    pub queue: u16,
+    pub isolation: u16,
+    pub reset: u16,
+}
+pub fn requirements(m: &Manifest<'_>) -> Result<Requirements, Error> {
+    classes(m)?;
+    let b = m.raw_metadata();
+    Ok(Requirements {
+        cpu_permille: u32_at(b, 456),
+        irq_per_second: u32_at(b, 460),
+        queue: u16_at(b, 464),
+        isolation: u16_at(b, 466),
+        reset: u16_at(b, 468),
+    })
+}

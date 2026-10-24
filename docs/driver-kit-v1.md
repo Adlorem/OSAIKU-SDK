@@ -207,3 +207,55 @@ images and require a separately signed disposable QEMU fixture to execute.
 DRV-07 distribution, publisher roles and durable selection are specified in
 [Driver packages v1](driver-packages-v1.md). Hardware class migration supplies
 the live admission facts; installing a package does not itself start a driver.
+
+
+## DRV-08 installed Boot HID endpoints
+
+The trusted USB core may grant a selected, signed Input-role package endpoint
+1 (keyboard) or 2 (mouse). Scope binds the physical connection and a fresh driver
+instance. The owner keeps transfer rings, DMA, descriptor reads, rearming and
+slot teardown; the client receives only copied reports. It cannot register a
+source, choose another interface, select focus, interpret text or access a
+framebuffer. The manager's status-only clients do not inherit HID operations.
+
+After HELLO/READY, HID_READ (13) requires zero sequence/offset/length/value. An
+empty queue returns sequence zero; otherwise it returns a one-use sequence and
+an 8-byte keyboard or 3-byte mouse report. A malformed report is represented by
+zero length. Only one receipt can be outstanding per endpoint. HID_INPUT (14)
+consumes that receipt with the same scope/release/endpoint and zero offset:
+
+* Mouse: value=0, length=6; little-endian i16 dx/dy (-128..127), three button bits,
+  and a zero reserved byte. Malformed/lost input: value=1, length=0.
+* Keyboard: value=0, length=40; twenty little-endian physical `hid::Poll` values.
+  Zero means no event, 1 ignored, 2 source lost, otherwise 0x4000 plus usage in
+  the low byte and 0x8000 for pressed. All other bits are rejected. The shared
+  consumer applies layout, modifiers, repeat and routing; the package emits no text.
+
+The owner queue has 32 copied reports. Overflow revokes delivery and releases
+source state; old receipts cannot cross detach, restart or version replacement.
+Selected interfaces use exactly one decoder. Boot fallback is withdrawn before
+package launch and remains withdrawn on process failure, until a bounded retry
+or explicit protected deactivation. Detach never resets the shared controller.
+Input wakes the service; the owner also wakes a blocked HID service every 100 ms
+for heartbeat. A wake does not renew the unchanged 3 s watchdog. Each drain is
+bounded to 32 reports and each HID instance to 8192 messages/s. Automatic retries
+are limited to three per connection; a new explicit catalog/policy decision can
+renew that budget without resetting any connection, receipt or instance ID.
+
+These clients use the shared charged ELF/W^X loader and durable package pins.
+They run in System scheduling class with no IRQ/DMA grant. This profile admits
+only CPU ceiling 1000 permille (no smaller per-process cap is implemented),
+I/O budget at least 4 KiB and queue budget at least 32; unsupported requirements
+are refused rather than silently weakened. There is no promise
+of a dedicated CPU share or hard latency bound. Trust and exact selection are
+rechecked before start and confirmation. The installed image pin is released
+only after process retirement. Unrelated HID interfaces keep running during a
+package update; policy changes revoke affected runtime authority before restart.
+
+The shipped decoder handles Boot Protocol only: mouse three buttons/relative
+X/Y, keyboard eight modifiers and six deduplicated usages. The keyboard ignores
+OEM byte 1 as required by HID 1.11 B.1/F.4. Rollover/error releases the source and
+requires a neutral report. Existing layout limitations and lack of LED output
+are preserved; full report-descriptor parsing, NKRO and mouse wheels are outside
+this profile. Independent sample packages live in the OS's `drivers/usb-*`
+directories, and compile outside the OS checkout with only Driver Kit dependencies.

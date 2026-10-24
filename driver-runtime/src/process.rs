@@ -25,6 +25,8 @@ pub mod op {
     pub const CANCEL: u64 = 10;
     pub const STATUS: u64 = 11;
     pub const APPROVE: u64 = 12;
+    pub const HID_READ: u64 = 13;
+    pub const HID_INPUT: u64 = 14;
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -197,6 +199,7 @@ pub struct Instance {
     deadline: u64,
     window: u64,
     calls: u16,
+    hid: bool,
     pub copies: Copies,
 }
 impl Instance {
@@ -211,8 +214,13 @@ impl Instance {
             deadline: now.saturating_add(START_TIMEOUT),
             window: now,
             calls: 0,
+            hid: false,
             copies: Copies::new(),
         }
+    }
+    /// Only the trusted owner may admit an input-role package.
+    pub fn admit_hid(&mut self) {
+        self.hid = true;
     }
     pub fn authorize(&mut self, role: Role, m: &Message, now: u64) -> Result<(), Error> {
         if self.poll(now, true) {
@@ -232,7 +240,7 @@ impl Instance {
             self.window = now;
             self.calls = 0;
         }
-        if self.calls >= MAX_CALLS {
+        if self.calls >= if self.hid { 8192 } else { MAX_CALLS } {
             self.fail(Failure::Flood);
             return Err(Error::Backpressure);
         }
@@ -258,6 +266,11 @@ impl Instance {
             }
             op::SNAPSHOT | op::RECONCILE | op::START | op::STATUS | op::APPROVE
                 if self.phase == Phase::Ready && role == Role::Manager =>
+            {
+                ()
+            }
+            op::HID_READ | op::HID_INPUT
+                if self.hid && self.phase == Phase::Ready && role == Role::Driver =>
             {
                 ()
             }
