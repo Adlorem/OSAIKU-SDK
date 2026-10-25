@@ -2,6 +2,7 @@
 //! belongs to the kernel; UEFI authenticates the opaque object as a whole.
 use crate::*;
 pub mod catalog;
+pub mod drivers;
 pub const HANDOFF_REVISION: u32 = 7;
 pub const BASE_VERSION: u32 = 1;
 pub const DESCRIPTOR_BYTES: usize = 128;
@@ -81,11 +82,19 @@ impl<'a> BaseMetadata<'a> {
         u32_at(self.bytes, 12) as usize
     }
     pub fn validate_profile(&self) -> Result<(), Error> {
-        if self.service_count() != BASE_PROFILE_ROLES.len()
+        let has_drivers = self.entries().any(|e| e.role == drivers::ROLE);
+        if self.service_count() != BASE_PROFILE_ROLES.len() + usize::from(has_drivers)
             || self
                 .entries()
+                .filter(|entry| entry.role != drivers::ROLE)
                 .zip(BASE_PROFILE_ROLES)
                 .any(|(entry, role)| entry.role != role || u64::from(entry.abi) != SERVICE_ABI)
+        {
+            return Err(Error::Compatibility);
+        }
+        if self
+            .entries()
+            .any(|e| e.role == drivers::ROLE && e.abi != drivers::VERSION)
         {
             return Err(Error::Compatibility);
         }

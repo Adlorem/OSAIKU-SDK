@@ -143,3 +143,7 @@ Only the controller's successful presence/bring-up observation creates these
 facts; a package match cannot create a device. PCI/USB match values are unchanged.
 The installed PS/2 clients use the same signed catalog, lease, image loader,
 input-role publisher policy and bounded process supervisor as USB HID.
+
+DRV-13 embeds release-owned boot/recovery packages in authenticated RAM before
+mounting the disk catalog. See [early-drivers-v1.md](early-drivers-v1.md) for
+the generic role-31 format, dependency pins and bank lifetime.
