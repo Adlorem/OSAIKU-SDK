@@ -379,3 +379,31 @@ Native `wait_for` accepts microseconds (1..100000). xHCI waits for IRQ, queued
 work or the nearest operation deadline; heartbeat wakeups do not scan MMIO.
 Failure invalidates all children of the controller generation. The initial
 native policy stages replacement and recovery for reboot, retaining the group.
+
+## Admitted NVMe block/controller process (DRV-14)
+
+`nvme_process` uses endpoint 7 with IO=17, FETCH=18, COMPLETE=19. These operation
+numbers are scoped to the admitted endpoint and cannot cross into xHCI/HID/BOT.
+Canonical 64-byte requests bind generation, monotonic receipt, namespace,
+operation (read/write/flush/shutdown), LBA, exact byte count and fixed arena
+buffer. Replies carry generation, receipt, exact completed bytes and failure.
+The single outstanding request remains owned until its receipt is consumed.
+Failed/uncertain writes close the channel; there is no in-place restart/replay.
+
+`nvme_io::Gate` exposes only approved NVMe register offsets and one 544768-byte
+arena, with copies limited to 256 bytes. Entire MSI-X table/PBA pages are
+excluded. GRANT supplies base, exact bytes, DMA mask and namespace. Native
+admission must independently establish reset-group exclusivity, DMA/IRQ
+isolation and stopped old owners. A signature or manifest cannot establish it.
+
+The trusted launch path may use `Instance::admit_controller_start_budget`
+before HELLO for a nonrenewable 5–70 second initialization budget. READY restores
+the ordinary heartbeat deadline. NVMe yields while waiting and sends heartbeats
+during long shutdown waits; operation deadlines remain independently bounded.
+
+The OS example `drivers/nvme` implements the synchronous `block_io::Media`
+contract and a native executable using only public SDK dependencies. Filesystem
+mounts, protected partitions, maintenance/write grants and recovery are owned
+by the trusted storage layer. Its system-disk adapter/handoff is not enabled;
+the qualified platform allowlist is empty. Test files are separate from all
+production modules, including the emulator's fault injection helpers.

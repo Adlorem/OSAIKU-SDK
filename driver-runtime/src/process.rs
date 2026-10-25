@@ -236,6 +236,19 @@ impl Instance {
     pub fn admit_controller(&mut self) {
         self.controller = true;
     }
+    /// Trusted platform launch may budget bounded controller reset/Identify
+    /// before HELLO. Wire traffic cannot grant or renew this startup budget.
+    pub fn admit_controller_start_budget(&mut self, milliseconds: u64) -> Result<(), Error> {
+        if self.phase != Phase::Starting
+            || self.controller
+            || !(START_TIMEOUT..=70_000).contains(&milliseconds)
+        {
+            return Err(Error::State);
+        }
+        self.deadline = self.window.saturating_add(milliseconds);
+        self.controller = true;
+        Ok(())
+    }
     /// The transport owner calls this once after validating an outstanding
     /// one-use receipt and its exact action. Reimburse that solicited step's
     /// heartbeat/fetch/reply and optional empty fetch before sleeping. Idle or
