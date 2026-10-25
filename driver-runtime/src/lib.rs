@@ -25,6 +25,7 @@ pub mod hid;
 pub mod native;
 #[forbid(unsafe_code)]
 pub mod nvme;
+pub mod nvme_client;
 pub mod nvme_io;
 pub mod nvme_process;
 #[forbid(unsafe_code)]

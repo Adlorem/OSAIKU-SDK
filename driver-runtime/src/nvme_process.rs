@@ -10,6 +10,8 @@ pub const READ: u64 = 1;
 pub const WRITE: u64 = 2;
 pub const FLUSH: u64 = 3;
 pub const SHUTDOWN: u64 = 4;
+/// Read-only Identify CNS 0..3, using the namespace admitted by the owner.
+pub const IDENTIFY: u64 = 5;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
     pub generation: u64,
@@ -60,6 +62,11 @@ impl Request {
             return Err(Error::InvalidId);
         }
         match r.operation {
+            IDENTIFY => {
+                if r.lba > 3 || r.bytes != 4096 || r.buffer == 0 {
+                    return Err(Error::Range);
+                }
+            }
             READ | WRITE => {
                 if r.bytes == 0
                     || r.bytes as usize > crate::nvme::MAX_IO_BYTES
