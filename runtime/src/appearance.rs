@@ -1,7 +1,7 @@
 //! The desktop background the compositor paints under every window: one of
 //! the SDK's background presets, optionally with a picture over it, and how
 //! much of it shows through the taskbar; and the base theme (Dark or Light)
-//! of the shell, the window frames and the applications. A process granted DesktopAppearanceWrite
+//! and accent colour of the shell, the window frames and the applications. A process granted DesktopAppearanceWrite
 //! may change them, and the setting lasts until restart.
 //!
 //! A picture travels as straight ARGB rows of exactly the screen's size, the
@@ -12,7 +12,7 @@
 //! `SYSCALL`: RDI the [`Request`], RSI the [`Reply`], and for ROWS RDX the
 //! rows and R8 their byte count (at most [`CHUNK`]).
 pub const SYSCALL: u64 = 391;
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 /// Largest ROWS transfer.
 pub const CHUNK: usize = 64 * 1024;
 /// Largest screen a picture is kept for, per side.
@@ -21,8 +21,8 @@ pub const MAX_SIDE: u32 = 4096;
 pub mod operation {
     /// The current background and the screen's size.
     pub const QUERY: u32 = 1;
-    /// Show `preset`, taskbar step `shelf` and base theme `base`; keep the
-    /// current picture over the preset when `keep_picture`.
+    /// Show `preset`, taskbar step `shelf`, base theme `base` and accent
+    /// `accent`; keep the current picture over the preset when `keep_picture`.
     pub const PRESET: u32 = 2;
     /// Reserve a picture of the screen's size, to go over `preset`, with
     /// taskbar step `shelf` and base theme `base` once committed.
@@ -66,6 +66,10 @@ pub fn shelf_valid(shelf: u64) -> bool {
 pub fn base_valid(base: u64) -> bool {
     u32::try_from(base).is_ok_and(|base| osaiku_ui::appearance::Base::from_index(base).is_some())
 }
+/// An accent the SDK defines (`osaiku_ui::appearance::ACCENTS`).
+pub fn accent_valid(accent: u64) -> bool {
+    accent < osaiku_ui::appearance::ACCENTS.len() as u64
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,7 +84,12 @@ pub struct Request {
     pub shelf: u32,
     /// `osaiku_ui::appearance::Base::index`.
     pub base: u32,
+    /// `osaiku_ui::appearance::ACCENTS` index.
+    pub accent: u32,
+    /// Zero; keeps the layout free of padding.
+    pub reserved: u32,
 }
+const _: () = assert!(core::mem::size_of::<Request>() == 48);
 impl Request {
     pub const EMPTY: Self = Self {
         version: VERSION,
@@ -92,17 +101,22 @@ impl Request {
         rows: 0,
         shelf: 0,
         base: 0,
+        accent: 0,
+        reserved: 0,
     };
     pub fn canonical(&self) -> bool {
         let look = |s: &Self| {
             preset_valid(u64::from(s.preset))
                 && shelf_valid(u64::from(s.shelf))
                 && base_valid(u64::from(s.base))
+                && accent_valid(u64::from(s.accent))
         };
-        let no_look =
-            |s: &Self| s.preset == 0 && s.shelf == 0 && s.keep_picture == 0 && s.base == 0;
+        let no_look = |s: &Self| {
+            s.preset == 0 && s.shelf == 0 && s.keep_picture == 0 && s.base == 0 && s.accent == 0
+        };
         let no_rows = |s: &Self| s.first_row == 0 && s.rows == 0;
         self.version == VERSION
+            && self.reserved == 0
             && self.sequence != 0
             && match self.operation {
                 operation::QUERY | operation::COMMIT | operation::CANCEL => {
@@ -138,7 +152,12 @@ pub struct Reply {
     pub shelf: u32,
     /// The base theme: `osaiku_ui::appearance::Base::index`.
     pub base: u32,
+    /// The accent: `osaiku_ui::appearance::ACCENTS` index.
+    pub accent: u32,
+    /// Zero; keeps the layout free of padding.
+    pub reserved: u32,
 }
+const _: () = assert!(core::mem::size_of::<Reply>() == 48);
 impl Reply {
     pub const EMPTY: Self = Self {
         version: VERSION,
@@ -150,6 +169,8 @@ impl Reply {
         height: 0,
         shelf: 0,
         base: 0,
+        accent: 0,
+        reserved: 0,
     };
 }
 
@@ -173,11 +194,13 @@ pub fn exchange_with(
         return Err(code);
     }
     if reply.version != VERSION
+        || reply.reserved != 0
         || reply.sequence != request.sequence
         || reply.status > status::BUSY
         || (reply.status == status::OK
             && (!preset_valid(reply.preset as u64)
                 || !base_valid(reply.base as u64)
+                || !accent_valid(reply.accent as u64)
                 || !shelf_valid(reply.shelf as u64)
                 || reply.picture > 1
                 || !(1..=MAX_SIDE).contains(&reply.width)

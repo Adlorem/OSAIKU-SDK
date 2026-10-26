@@ -2,6 +2,7 @@
 //! belongs to the kernel; UEFI authenticates the opaque object as a whole.
 use crate::*;
 pub mod catalog;
+pub mod drivers;
 pub const HANDOFF_REVISION: u32 = 7;
 pub const BASE_VERSION: u32 = 1;
 pub const DESCRIPTOR_BYTES: usize = 128;
@@ -10,7 +11,9 @@ pub const BASE_HEADER_BYTES: usize = 32;
 pub const BASE_ENTRY_BYTES: usize = 64;
 pub const SERVICE_ABI: u64 = 1;
 /// Fixed recovery profile. Role 32 contains catalog metadata, never code.
-pub const BASE_PROFILE_ROLES: [u32; 16] = [1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 19, 32];
+pub const BASE_PROFILE_ROLES: [u32; 18] = [
+    1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 32,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BaseEntry {
@@ -80,11 +83,19 @@ impl<'a> BaseMetadata<'a> {
         u32_at(self.bytes, 12) as usize
     }
     pub fn validate_profile(&self) -> Result<(), Error> {
-        if self.service_count() != BASE_PROFILE_ROLES.len()
+        let has_drivers = self.entries().any(|e| e.role == drivers::ROLE);
+        if self.service_count() != BASE_PROFILE_ROLES.len() + usize::from(has_drivers)
             || self
                 .entries()
+                .filter(|entry| entry.role != drivers::ROLE)
                 .zip(BASE_PROFILE_ROLES)
                 .any(|(entry, role)| entry.role != role || u64::from(entry.abi) != SERVICE_ABI)
+        {
+            return Err(Error::Compatibility);
+        }
+        if self
+            .entries()
+            .any(|e| e.role == drivers::ROLE && e.abi != drivers::VERSION)
         {
             return Err(Error::Compatibility);
         }

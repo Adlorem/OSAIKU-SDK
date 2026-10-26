@@ -17,7 +17,15 @@ fn main() {
     let public: [u8; 32] = read(Path::new(&args[2]))
         .try_into()
         .expect("32-byte public key");
-    let keys = [Domain::System, Domain::Application].map(|domain| TrustedKey {
+    let keys = [
+        Domain::System,
+        Domain::Application,
+        Domain::Driver,
+        Domain::DriverInput,
+        Domain::DriverStorage,
+        Domain::DriverController,
+    ]
+    .map(|domain| TrustedKey {
         public_key: public,
         domain,
         minimum_epoch: 1,
@@ -37,6 +45,16 @@ fn main() {
         .expect("release pair");
     let base = BaseMetadata::validate_object(&bytes).expect("base integrity");
     base.validate_profile().expect("service profile");
+    if let Some(e) = base.entries().find(|e| e.role == system::drivers::ROLE) {
+        let set =
+            system::drivers::Set::parse(&bytes[e.offset as usize..(e.offset + e.length) as usize])
+                .expect("driver set");
+        set.verify(&policy).expect("driver set authentication");
+        println!(
+            "early_drivers={};source=authenticated-base",
+            set.entries().len()
+        );
+    }
     let e = base
         .entries()
         .find(|e| e.role == system::catalog::ROLE)

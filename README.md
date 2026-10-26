@@ -1,5 +1,10 @@
 # OSAIKU-SDK
 
+The [Driver Kit v1](docs/driver-kit-v1.md) provides standalone `no_std` protocol,
+lifecycle, resource-lease and bounded-request contracts in `osaiku-driver-protocol`
+and `osaiku-driver-runtime`. It has no private OS or UI dependency; hardware
+authority and process transport remain responsibilities of the host platform.
+
 Stage 30 development starts with experimental `osaiku-ui`: bounded HTML/CSS-like
 compilation, versioned components, binding, layout, paint primitives and
 semantics. See [UI format and current limits](docs/ui-v1.md). This is not yet a

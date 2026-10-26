@@ -9,7 +9,7 @@ pub fn frame_offer_with(
     mut exchange: impl FnMut(&Request, &mut [u8], &mut Receipt) -> isize,
 ) -> Result<FrameOffer, PublishError> {
     let request = Request {
-        version: VERSION,
+        version: REQUEST_VERSION,
         operation: FRAME_OFFER,
         handle: Handle {
             target,

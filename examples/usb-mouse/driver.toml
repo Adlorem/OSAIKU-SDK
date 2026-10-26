@@ -1,0 +1,25 @@
+[package]
+id = "example.driver-kit.usb-mouse"
+name = "Driver Kit mouse example"
+version = "1.0"
+release = 1
+epoch = 1
+executable = "usb-mouse"
+memory_bytes = 1048576
+io_bytes = 65536
+permissions = 0
+[compatibility]
+abi_major = 1
+[driver]
+classes = 1
+cpu_permille = 1000
+irq_per_second = 0
+queue = 32
+isolation = "mediated"
+reset = "function"
+[[matches]]
+bus = "usb"
+class = 3
+subclass = 1
+protocol = 2
+

@@ -101,6 +101,9 @@ impl HostedRaster {
             .geometry
             .content_extent()
             .map_err(|e| RasterError::Publish(PublishError::Content(e)))?;
+        // The host's palette and the desktop's accent.
+        let (theme, accent) = osaiku_ui::theme::Theme::decode(offer.geometry.theme)
+            .ok_or(RasterError::View(Error::Value))?;
         let scene = Scene::prepare_in(
             &scratch.document,
             extent.width,
@@ -109,10 +112,8 @@ impl HostedRaster {
             &mut scratch.layout_workspace,
         )
         .map_err(RasterError::View)?
-        .with_theme(
-            osaiku_ui::theme::Theme::from_id(offer.geometry.theme)
-                .ok_or(RasterError::View(Error::Value))?,
-        )
+        .with_theme(theme)
+        .with_accent(accent)
         .with_images(images);
         // Take before modifying fingerprints: every unsuccessful path loses the
         // base. Geometry includes epoch/incarnation, resize, palette and chrome.

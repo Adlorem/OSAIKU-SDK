@@ -422,7 +422,7 @@ fn public_policy_record_cannot_reinterpret_status_domain_or_duplicate_keys() {
         bad[offset] = 1;
         assert!(PolicyDocument::parse(&bad).is_err());
     }
-    for (offset, value) in [(64, 0), (64, 4), (65, 2)] {
+    for (offset, value) in [(64, 0), (64, 9), (65, 2)] {
         let mut bad = bytes.clone();
         bad[offset] = value;
         assert!(PolicyDocument::parse(&bad).is_err());
@@ -758,4 +758,90 @@ fn streaming_checks_resource_padding_hash_and_icon_shape_across_chunks() {
             assert_eq!(Package::parse(&b).is_ok(), variant == 0);
         }
     }
+}
+
+#[test]
+fn driver_repository_and_application_repository_have_distinct_signatures_and_candidates() {
+    use osaiku_package::repository::sources::*;
+    fn source(domain: Domain) -> Source {
+        let mut id = [0; 128];
+        id[..22].copy_from_slice(b"dev.example.repository");
+        let mut address = [0; 296];
+        let u = b"https://packages.example/index";
+        address[..u.len()].copy_from_slice(u);
+        let mut channel = [0; 24];
+        channel[..6].copy_from_slice(b"stable");
+        Source {
+            domain,
+            id,
+            address,
+            key: key().verifying_key().to_bytes(),
+            channel,
+            priority: 1,
+            enabled: true,
+            minimum_epoch: 2,
+            architecture: 62,
+            process_major: 1,
+            process_minor: 0,
+        }
+    }
+    let application = source(Domain::Application);
+    let driver = source(Domain::Driver);
+    assert_ne!(application.identity().unwrap(), driver.identity().unwrap());
+    assert!(Source::parse(&driver.encode().unwrap(), Domain::Application).is_err());
+    let blob = app();
+    let app_index = index(&blob);
+    let driver_index = signed(Domain::DriverRepository, &app_index[192..], 2);
+    let checkpoint = RepositoryState {
+        id: "dev.example.repository",
+        sequence: 0,
+        digest: [0; 32],
+    };
+    assert!(driver
+        .verify(&app_index, 2, Some(101), &checkpoint)
+        .is_err());
+    assert!(application
+        .verify(&driver_index, 2, Some(101), &checkpoint)
+        .is_err());
+    let a = application
+        .verify(&app_index, 2, Some(101), &checkpoint)
+        .unwrap();
+    let d = driver
+        .verify(&driver_index, 2, Some(101), &checkpoint)
+        .unwrap();
+    let keys = [trust(Domain::Application)];
+    let package = Package::parse(&blob)
+        .unwrap()
+        .verify(&policy(&keys))
+        .unwrap();
+    let a = a
+        .candidate(package.publisher(), package.manifest().id(), 1)
+        .unwrap();
+    let d = d
+        .candidate(package.publisher(), package.manifest().id(), 1)
+        .unwrap();
+    assert_ne!(a.cache_key(), d.cache_key());
+    assert!(a.bind(Domain::Application, &application, &package).is_ok());
+    assert!(d.bind(Domain::Driver, &driver, &package).is_err());
+    assert!(a.bind(Domain::Driver, &driver, &package).is_err());
+    let mut apps = Sources::new(Domain::Application).unwrap();
+    let mut drivers = Sources::new(Domain::Driver).unwrap();
+    apps.set(Domain::Application, application).unwrap();
+    drivers.set(Domain::Driver, driver).unwrap();
+    assert!(apps.set(Domain::Application, driver).is_err());
+    assert!(drivers.list(Domain::Application).is_err());
+    let mut disabled = application;
+    disabled.enabled = false;
+    apps.set(Domain::Application, disabled).unwrap();
+    assert!(disabled
+        .verify(&app_index, 2, Some(101), &checkpoint)
+        .is_err());
+    assert!(
+        drivers
+            .list(Domain::Driver)
+            .unwrap()
+            .next()
+            .unwrap()
+            .enabled
+    );
 }

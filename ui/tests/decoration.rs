@@ -80,14 +80,13 @@ fn public_frame_rejects_overflow_and_out_of_title_controls() {
 fn standalone_frame_template_binds_literal_metadata_and_the_painted_controls() {
     use osaiku_ui::{compiler::compile, symbol};
     for colors in [
-        ["#343d50", "#2d3548", "#e6edf7", "#6654ce"],
-        ["#101010", "#000000", "#ffffff", "#274e91"],
+        ["#343d50", "#2d3548", "#e6edf7"],
+        ["#101010", "#000000", "#ffffff"],
     ] {
         let css = frame::CSS
             .replace("$SURFACE", colors[0])
             .replace("$TITLE", colors[1])
             .replace("$TEXT", colors[2])
-            .replace("$ACCENT", colors[3])
             .replace("$MUTED", "#8b91a0");
         let doc = compile(frame::HTML, &css).unwrap();
         for centered in [false, true] {

@@ -78,7 +78,7 @@ pub struct GeometryOffer {
 impl GeometryOffer {
     pub fn validate(self) -> Result<(), Refusal> {
         if self.version != VERSION
-            || crate::theme::Theme::from_id(self.theme).is_none()
+            || crate::theme::Theme::decode(self.theme).is_none()
             || !self.target.valid()
             || self.resize_generation == 0
             || self.window_width == 0

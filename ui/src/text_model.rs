@@ -132,10 +132,31 @@ pub fn bind_into(
     out.len = template.len;
     out.point_len = 0;
     out.points.fill(crate::Point::EMPTY);
+    bind_copied(model, out, &template.text[..template.text_len as usize])
+}
+
+/// Bind an already decoded template, using only a bounded text scratch buffer.
+/// This lets services retain compact wire templates instead of full Documents.
+/// On failure discard the partial document, as with `bind_into`.
+pub fn bind_in_place(model: &impl Model, out: &mut crate::Document) -> Result<(), crate::Error> {
+    out.validate()?;
+    if out.point_len != 0 {
+        return Err(crate::Error::Binding);
+    }
+    let source = out.text;
+    let len = out.text_len as usize;
+    bind_copied(model, out, &source[..len])
+}
+
+fn bind_copied(
+    model: &impl Model,
+    out: &mut crate::Document,
+    source: &[u8],
+) -> Result<(), crate::Error> {
     out.text_len = 0;
     out.text.fill(0);
     let mut text = Text::EMPTY;
-    for i in 0..template.len as usize {
+    for i in 0..out.len as usize {
         let node = &mut out.nodes[i];
         if node.bindings[2] != 0 {
             return Err(crate::Error::Binding);
@@ -145,7 +166,13 @@ pub fn bind_into(
         }
         text.clear();
         let label = if node.bindings[0] == 0 {
-            template.text_of(i)
+            let start = node.text_start as usize;
+            core::str::from_utf8(
+                source
+                    .get(start..start + node.text_len as usize)
+                    .ok_or(crate::Error::Binding)?,
+            )
+            .map_err(|_| crate::Error::Binding)?
         } else {
             model
                 .text(node.bindings[0], &mut text)

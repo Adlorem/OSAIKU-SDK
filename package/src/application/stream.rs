@@ -4,6 +4,7 @@
 use super::*;
 
 pub struct Verifier {
+    domain: Domain,
     metadata: [u8; MAX_METADATA_BYTES],
     metadata_len: usize,
     total: u64,
@@ -23,12 +24,30 @@ impl Verifier {
         total: u64,
         policy: &TrustPolicy<'_>,
     ) -> Result<Self, Error> {
-        Manifest::parse(metadata, total)?;
-        let mut content = Envelope::parse(header, total, Domain::Application)?.begin(policy)?;
+        Self::new_for(header, metadata, total, policy, Domain::Application)
+    }
+    pub fn new_for(
+        header: &[u8],
+        metadata: &[u8],
+        total: u64,
+        policy: &TrustPolicy<'_>,
+        domain: Domain,
+    ) -> Result<Self, Error> {
+        let manifest = Manifest::parse_for(metadata, total, domain)?;
+        if domain == Domain::Driver {
+            crate::driver::authorize(
+                policy,
+                Envelope::parse(header, total, domain)?.key_id(),
+                Envelope::parse(header, total, domain)?.epoch(),
+                &manifest,
+            )?;
+        }
+        let mut content = Envelope::parse(header, total, domain)?.begin(policy)?;
         content.push(metadata)?;
         let mut owned = [0; MAX_METADATA_BYTES];
         owned[..metadata.len()].copy_from_slice(metadata);
         Ok(Self {
+            domain,
             metadata: owned,
             metadata_len: metadata.len(),
             total,
@@ -39,7 +58,7 @@ impl Verifier {
             prefix_len: 0,
             content,
             failed: false,
-            publisher: Envelope::parse(header, total, Domain::Application)?.key_id(),
+            publisher: Envelope::parse(header, total, domain)?.key_id(),
         })
     }
     pub fn push(&mut self, bytes: &[u8]) -> Result<(), Error> {
@@ -52,7 +71,8 @@ impl Verifier {
     }
     fn push_inner(&mut self, mut bytes: &[u8]) -> Result<(), Error> {
         self.content.push(bytes)?;
-        let manifest = Manifest::parse(&self.metadata[..self.metadata_len], self.total)?;
+        let manifest =
+            Manifest::parse_for(&self.metadata[..self.metadata_len], self.total, self.domain)?;
         while !bytes.is_empty() {
             let c = manifest
                 .components()
@@ -105,6 +125,7 @@ impl Verifier {
         }
         let digest = self.content.finish()?;
         Ok(VerifiedManifest {
+            domain: self.domain,
             metadata: self.metadata,
             metadata_len: self.metadata_len,
             total: self.total,
@@ -117,6 +138,7 @@ impl Verifier {
 /// Authenticated metadata retained without keeping the complete package in RAM.
 /// This proves package verification, not approval or continued storage ownership.
 pub struct VerifiedManifest {
+    domain: Domain,
     metadata: [u8; MAX_METADATA_BYTES],
     metadata_len: usize,
     total: u64,
@@ -125,7 +147,8 @@ pub struct VerifiedManifest {
 }
 impl VerifiedManifest {
     pub fn manifest(&self) -> Manifest<'_> {
-        Manifest::parse(&self.metadata[..self.metadata_len], self.total).expect("verified manifest")
+        Manifest::parse_for(&self.metadata[..self.metadata_len], self.total, self.domain)
+            .expect("verified manifest")
     }
     pub fn publisher(&self) -> [u8; 32] {
         self.publisher

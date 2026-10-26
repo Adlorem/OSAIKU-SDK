@@ -39,6 +39,11 @@ impl PolicyDocument {
                 1 => Domain::Application,
                 2 => Domain::Repository,
                 3 => Domain::System,
+                4 => Domain::Driver,
+                5 => Domain::DriverInput,
+                6 => Domain::DriverStorage,
+                7 => Domain::DriverController,
+                8 => Domain::DriverRepository,
                 _ => return Err(Error::Policy),
             };
             if r[33] > 1 {
