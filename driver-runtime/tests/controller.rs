@@ -32,6 +32,22 @@ fn wire_canonical_and_generation_checked() {
     b[8..16].fill(0);
     assert_eq!(Request::decode(&b), Err(Error::Range));
 }
+
+#[test]
+fn evaluate_ep0_is_an_address_free_generation_bound_request() {
+    let mut r = request(9);
+    r.operation = request::EVALUATE_EP0;
+    r.slot = 2;
+    r.packet = 64;
+    assert_eq!(Request::decode(&r.encode()), Ok(r));
+    let mut channel = Channel::new(9);
+    channel.submit(r).unwrap();
+    assert_eq!(channel.fetch().unwrap().packet, 64);
+    channel.fail();
+    assert_eq!(channel.submit(r), Err(Error::Stale));
+    r.operation = 12;
+    assert_eq!(Request::decode(&r.encode()), Err(Error::Range));
+}
 #[test]
 fn crash_invalidates_all_outstanding_receipts_and_children() {
     let mut c = Channel::new(9);

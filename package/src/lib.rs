@@ -29,6 +29,7 @@ pub enum Domain {
     DriverInput,
     DriverStorage,
     DriverController,
+    DriverRepository,
 }
 impl Domain {
     pub fn magic(self) -> &'static [u8; 8] {
@@ -40,6 +41,7 @@ impl Domain {
             Self::DriverInput => b"OSADIN01",
             Self::DriverStorage => b"OSADST01",
             Self::DriverController => b"OSADCT01",
+            Self::DriverRepository => b"OSADIX01",
         }
     }
     pub fn signature_domain(self) -> &'static [u8] {
@@ -51,6 +53,7 @@ impl Domain {
             Self::DriverInput => b"OSAIKU/driver-input/v1\0",
             Self::DriverStorage => b"OSAIKU/driver-storage/v1\0",
             Self::DriverController => b"OSAIKU/driver-controller/v1\0",
+            Self::DriverRepository => b"OSAIKU/driver-repository-index/v1\0",
         }
     }
 }
@@ -145,7 +148,7 @@ impl<'a> Envelope<'a> {
         {
             return Err(Error::Format);
         }
-        let limit = if domain == Domain::Repository {
+        let limit = if matches!(domain, Domain::Repository | Domain::DriverRepository) {
             MAX_INDEX_BYTES
         } else {
             MAX_PACKAGE_BYTES

@@ -1,0 +1,14 @@
+[workspace]
+[package]
+name = "example-usb-mouse"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+[[bin]]
+name = "usb-mouse"
+path = "src/main.rs"
+test = false
+bench = false
+[dependencies]
+osaiku-driver-runtime = { path = "../../driver-runtime" }
+

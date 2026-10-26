@@ -21,7 +21,8 @@ DOMAINS = {"application": (1, b"OSAPPK01", b"OSAIKU/application-package/v1\0"),
            "driver": (4, b"OSADRV01", b"OSAIKU/driver-package/v1\0"),
            "driver-input": (5, b"OSADIN01", b"OSAIKU/driver-input/v1\0"),
            "driver-storage": (6, b"OSADST01", b"OSAIKU/driver-storage/v1\0"),
-           "driver-controller": (7, b"OSADCT01", b"OSAIKU/driver-controller/v1\0")}
+           "driver-controller": (7, b"OSADCT01", b"OSAIKU/driver-controller/v1\0"),
+           "driver-repository": (8, b"OSADIX01", b"OSAIKU/driver-repository-index/v1\0")}
 PACKAGE_LIMIT = 256 * 1024 * 1024
 
 
@@ -196,7 +197,7 @@ def pack(config, base, key, driver=False):
     return envelope(bytes(metadata) + body, "driver" if driver else "application", p["epoch"], key)
 
 
-def pack_index(args, config, base, key):
+def pack_index(args, config, base, key, driver=False):
     fields(config, ("repository", "entries"), ("repository",))
     r = config["repository"]
     fields(r, ("id", "sequence", "issued_at", "expires_at", "epoch"), ("id", "sequence", "issued_at", "expires_at", "epoch"))
@@ -214,7 +215,7 @@ def pack_index(args, config, base, key):
             snapshot.write(data)
             name = snapshot.name
         try:
-            checker(args, "inspect", name)
+            checker(args, "inspect-driver" if driver else "inspect", name)
         finally:
             Path(name).unlink(missing_ok=True)
         record = (data[32:64] + data[256:384]
@@ -224,7 +225,25 @@ def pack_index(args, config, base, key):
     records.sort(key=lambda b: b[:160])
     payload = (fixed(r["id"], 128) + struct.pack("<QQQI4x", r["sequence"], r["issued_at"], r["expires_at"], len(records))
                + b"".join(records))
-    return envelope(payload, "repository", r["epoch"], key)
+    return envelope(payload, "driver-repository" if driver else "repository", r["epoch"], key)
+
+
+def pack_source(config, base):
+    fields(config, ("source",), ("source",))
+    s = config["source"]
+    fields(s, ("domain", "id", "address", "public_key", "channel", "priority", "enabled",
+               "minimum_epoch", "architecture", "abi_major", "abi_minor"),
+           ("domain", "id", "address", "public_key", "channel", "minimum_epoch", "abi_major"))
+    if type(s.get("enabled", True)) is not bool:
+        raise ValueError("enabled must be boolean")
+    domain = {"application": 1, "driver": 4}[s["domain"]]
+    key = read(base / s["public_key"], 32)
+    if len(key) != 32:
+        raise ValueError("expected raw 32-byte repository public key")
+    return (struct.pack("<8sBBHHHH6xQ", b"OSASRC01", domain, s.get("enabled", True),
+                        s.get("priority", 100), s.get("architecture", 62), s["abi_major"],
+                        s.get("abi_minor", 0), s["minimum_epoch"])
+            + fixed(s["id"], 128) + fixed(s["address"], 296) + key + fixed(s["channel"], 24))
 
 
 def trust(args):
@@ -260,14 +279,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checker", type=Path, required=True, help="built package-check executable")
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("pack", "index-pack", "driver-pack"):
+    for name in ("pack", "index-pack", "driver-pack", "driver-index-pack"):
         p = sub.add_parser(name)
         p.add_argument("manifest", type=Path)
         p.add_argument("--key", type=Path, required=True, help="raw private seed OUTSIDE repository")
         p.add_argument("--output", type=Path, required=True)
         if name in ("pack", "driver-pack"):
             p.add_argument("--executable", type=Path, help="override the source ELF path; never stored in package")
-    for name in ("inspect", "verify", "index-inspect", "index-verify", "driver-inspect", "driver-verify"):
+    for name in ("inspect", "verify", "index-inspect", "index-verify", "driver-inspect", "driver-verify", "driver-index-inspect", "driver-index-verify"):
         p = sub.add_parser(name)
         p.add_argument("file", type=Path)
         if name.endswith("verify"):
@@ -293,16 +312,27 @@ def main():
     p.add_argument("--classes", type=lambda v: int(v, 0), required=True)
     p.add_argument("--revoke", action="store_true")
     p.add_argument("--output", type=Path, required=True)
+    p = sub.add_parser("source-pack", help="encode local repository configuration; grants no publisher trust")
+    p.add_argument("manifest", type=Path)
+    p.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
-        if args.command == "driver-key":
+        if args.command == "source-pack":
+            config = load(args.manifest)
+            data = pack_source(config, args.manifest.parent)
+            driver = config["source"]["domain"] == "driver"
+            if args.output.suffix != (".osadsrc" if driver else ".osasrc"):
+                raise ValueError("source extension must match its domain")
+            atomic(args.output, data, lambda p: checker(args, "source-driver" if driver else "source-application", p))
+            print(f"created={args.output}\nsha256={hashlib.sha256(data).hexdigest()}")
+        elif args.command == "driver-key":
             public = read(args.public_key, 32)
             if len(public) != 32 or not 1 <= args.classes <= 63 or args.output.suffix != ".osadkey":
                 raise ValueError("expected a 32-byte public key, classes 1..63 and .osadkey output")
             data = public + struct.pack("<Q", args.classes | ((1 << 63) if args.revoke else 0))
             atomic(args.output, data, lambda _: None)
             print("fingerprint=" + hashlib.sha256(public).hexdigest())
-        elif args.command in ("pack", "index-pack", "driver-pack"):
+        elif args.command in ("pack", "index-pack", "driver-pack", "driver-index-pack"):
             config = load(args.manifest)
             key = signing_key(args.key)
             if args.command in ("pack", "driver-pack"):
@@ -313,8 +343,9 @@ def main():
                     raise ValueError("driver packages require .osadrv extension")
                 check = "inspect-driver" if args.command == "driver-pack" else "inspect"
             else:
-                data = pack_index(args, config, args.manifest.parent, key)
-                check = "inspect-index"
+                driver = args.command == "driver-index-pack"
+                data = pack_index(args, config, args.manifest.parent, key, driver)
+                check = "inspect-driver-index" if driver else "inspect-index"
             atomic(args.output, data, lambda p: checker(args, check, p))
             print(f"created={args.output}\nsha256={hashlib.sha256(data).hexdigest()}")
         elif args.command.startswith("trust-"):
@@ -333,11 +364,13 @@ def main():
             extra = []
             if args.command in ("verify", "driver-verify"):
                 extra = [args.policy, args.release_floor, args.rollback_digest]
-            elif args.command == "index-verify":
+            elif args.command in ("index-verify", "driver-index-verify"):
                 extra = [args.policy, args.now, args.repository, args.sequence_floor, args.checkpoint]
                 if args.package:
                     extra.append(args.package)
-            if args.command.startswith("driver-"):
+            if args.command.startswith("driver-index-"):
+                command = args.command[len("driver-index-"):] + "-driver-index"
+            elif args.command.startswith("driver-"):
                 command = args.command[7:] + "-driver"
             print(checker(args, command, args.file, *extra), end="")
     except (ValueError, OSError, KeyError, TypeError, struct.error) as error:

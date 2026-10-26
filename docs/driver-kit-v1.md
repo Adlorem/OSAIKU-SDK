@@ -26,6 +26,12 @@ libraries plus a separate guest executable. Its native invocation is `cargo buil
 The temporary directory must not be inside either checkout. No private include,
 path dependency or implicit kernel target is part of the Driver Kit profile.
 
+A production example with a separate package identity is available in
+[`examples/usb-mouse`](../examples/usb-mouse/README.md). Its isolated build,
+packaging, activation checks and recovery instructions use only the public SDK.
+The build command records its dependency graph and ELF digest separately from
+installation or hardware evidence.
+
 ## Identity and authority
 
 All IDs are nonzero u64 values. `DeviceId` is a host registry's boot-session ID,
@@ -360,7 +366,10 @@ length and single consumption. Queue slots are dispatched in receipt order.
 Class HID/BOT messages and USB-core endpoint handles are unchanged.
 
 `controller_io::Gate` accepts offsets in an observed register inventory and
-IOVA addresses in one retained 344064-byte arena. It exposes no PCI writes,
+IOVA addresses in one retained arena of at least 344064 bytes. The xHCI package
+budget is 479232 bytes for up to 32 scratchpads plus their pointer page; a
+controller requiring more or receiving too small a grant is refused before
+register writes. It exposes no PCI writes,
 physical allocator, IRQ destination or arbitrary mapping. MSI-X table/PBA pages
 are excluded entirely. Data copies are at most 256 bytes per call; shared user
 pages are not implemented in this profile. READ/WRITE_REGISTER, READ/WRITE_ARENA,
@@ -379,6 +388,13 @@ Native `wait_for` accepts microseconds (1..100000). xHCI waits for IRQ, queued
 work or the nearest operation deadline; heartbeat wakeups do not scan MMIO.
 Failure invalidates all children of the controller generation. The initial
 native policy stages replacement and recovery for reboot, retaining the group.
+
+Request operation `EVALUATE_EP0=11` carries a slot and packet size, without any
+address. USB core uses it after the first eight descriptor bytes of a full-speed
+root device. The HCD serializes it with control transfers and preserves the
+hardware dequeue/cycle state. Low/full-speed interrupt intervals are converted
+from milliseconds; high/super-speed intervals retain their exponent encoding.
+External hubs, split transactions and isochronous endpoints remain unsupported.
 
 ## Admitted NVMe block/controller process (DRV-14)
 

@@ -87,6 +87,48 @@ class = 3
         self.run_tool('driver-key', '--public-key', 'public', '--classes', 1, '--revoke', '--output', 'revoke.osadkey')
         self.assertEqual(struct.unpack('<Q', (self.root / 'revoke.osadkey').read_bytes()[32:])[0], (1 << 63) | 1)
 
+    def test_repository_and_local_source_have_separate_domain_and_key_scope(self):
+        self.run_tool('driver-pack', 'driver.toml', '--key', 'private', '--output', 'driver.osadrv')
+        (self.root / 'index.toml').write_text('''[repository]
+id = "example.drivers"
+sequence = 1
+issued_at = 100
+expires_at = 1000
+epoch = 2
+[[entries]]
+package = "driver.osadrv"
+url = "https://example.invalid/driver.osadrv"
+''')
+        self.run_tool('index-pack', 'index.toml', '--key', 'private', '--output', 'foreign.index', ok=False)
+        self.run_tool('driver-index-pack', 'index.toml', '--key', 'private', '--output', 'driver.index')
+        self.run_tool('index-inspect', 'driver.index', ok=False)
+        self.run_tool('driver-index-inspect', 'driver.index')
+        self.approve('repository', 1)
+        args = ('--policy', 'policy', '--now', 150, '--repository', 'example.drivers',
+                '--sequence-floor', 0, '--checkpoint', '0' * 64)
+        self.run_tool('driver-index-verify', 'driver.index', *args, ok=False)
+        self.approve('driver-repository', 2)
+        self.run_tool('driver-index-verify', 'driver.index', *args)
+        # Repository trust alone cannot authenticate or start the package.
+        self.run_tool('driver-verify', 'driver.osadrv', '--policy', 'policy', ok=False)
+        config = '''[source]
+domain = "driver"
+id = "example.drivers"
+address = "https://example.invalid/index"
+public_key = "public"
+channel = "stable"
+minimum_epoch = 2
+abi_major = 1
+'''
+        (self.root / 'source.toml').write_text(config)
+        self.run_tool('source-pack', 'source.toml', '--output', 'drivers.osadsrc')
+        data = (self.root / 'drivers.osadsrc').read_bytes()
+        self.assertEqual((len(data), data[:10]), (512, b'OSASRC01\x04\x01'))
+        self.run_tool('source-pack', 'source.toml', '--output', 'wrong.osasrc', ok=False)
+        (self.root / 'source.toml').write_text(config.replace('https:', 'http:'))
+        self.run_tool('source-pack', 'source.toml', '--output', 'bad.osadsrc', ok=False)
+        self.assertFalse((self.root / 'bad.osadsrc').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

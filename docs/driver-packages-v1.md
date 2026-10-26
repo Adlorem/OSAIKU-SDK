@@ -63,7 +63,7 @@ python tools/package.py --checker /path/package-check driver-key \
 ```
 
 The key request contains only the public key and requested sensitive roles.
-It is not a grant. Import it with the protected Package Manager file chooser and
+It is not a grant. Import it with the protected Device Manager file chooser and
 approve the displayed fingerprint and roles, then inspect/install `.osadrv`.
 An ordinary application cannot submit an approval or change the expected domain.
 `driver-key --revoke` produces an explicit revocation request. Confirming it
@@ -71,7 +71,7 @@ advances the durable policy epoch and retains revoked key records. A revoked key
 cannot be resurrected by importing the public key again.
 
 Policy domains are Application=1, Repository=2, System=3, Driver=4,
-DriverInput=5, DriverStorage=6, DriverController=7. A driver always needs domain 4.
+DriverInput=5, DriverStorage=6, DriverController=7, DriverRepository=8. A driver always needs domain 4.
 Class bits 1 (input), 2 (storage) and 4 (controller) additionally need the
 corresponding sensitive domain for the same publisher and signing epoch.
 Bits 8, 16 and 32 identify other mediated classes and require domain 4; these
@@ -147,3 +147,69 @@ input-role publisher policy and bounded process supervisor as USB HID.
 DRV-13 embeds release-owned boot/recovery packages in authenticated RAM before
 mounting the disk catalog. See [early-drivers-v1.md](early-drivers-v1.md) for
 the generic role-31 format, dependency pins and bank lifetime.
+
+## Device Manager and repository configuration (DRV-15)
+
+Device Manager owns driver installation, admitted version selection, rollback,
+attachment controls and diagnostics. Package Manager accepts application files
+only. File Manager routes `.osadrv` and `.osadkey` to Device Manager; the extension
+selects the owner, and the shared parser checks the actual bytes. Existing driver
+catalogs and consents are used in place. Committing bytes does not start a driver.
+Early/recovery packages remain visible as protected system-release entries;
+changing that set requires an authenticated system update and reboot.
+
+`osaiku_runtime::devices` defines versioned redacted snapshots and proposals.
+The protected manager and an admitted assistant may read facts or request a
+proposal against an exact snapshot stamp. A proposal carries confirmation-needed
+status and does not execute hardware operations, modify trust or admit code.
+Disabling supported noncritical input applies to one attachment and requires a
+working alternative of that input class; reconnect restores the admitted policy.
+Controller/storage/boot-set changes require their protected lifecycle policy.
+
+Source configuration is independent for applications and drivers. Create a
+512-byte local configuration with a repository public key (not a publisher grant):
+
+```toml
+[source]
+domain = "driver"
+id = "example.drivers"
+address = "https://packages.example/drivers/stable.index"
+public_key = "repository.pub"
+channel = "stable"
+priority = 100
+enabled = true
+minimum_epoch = 1
+architecture = 62
+abi_major = 1
+abi_minor = 0
+```
+
+```sh
+python tools/package.py --checker /path/package-check source-pack source.toml \
+  --output stable.osadsrc
+python tools/package.py --checker /path/package-check driver-index-pack index.toml \
+  --key /outside-checkout/repository-seed --output stable.osadidx
+python tools/package.py --checker /path/package-check driver-index-inspect stable.osadidx
+```
+
+The index manifest uses the existing `[repository]` and `[[entries]]` format,
+but each entry must name a driver package. Driver indexes use `OSADIX01` and
+`OSAIKU/driver-repository-index/v1\0`; application indexes retain `OSAIDX01`.
+For application sources use `domain = "application"` and `.osasrc`.
+Import configuration via the corresponding manager's file chooser, review the
+complete origin, fingerprint, channel, compatibility and priority, then confirm.
+Each owner supports eight sources and explicit enable/disable/removal. Source
+changes use a durable revision; stale confirmations are refused. Removing a
+source does not remove installed packages or revoke their publishers.
+
+Configured-source checkpoints are persisted before returning update candidates.
+Domain, origin/configuration identity, authenticated index and package digest
+bind candidates and cache keys. The configured key epoch is independent of the
+publisher policy; admitting a new repository signing epoch requires an explicit
+source configuration update. Repository keys cannot authorize driver/input/storage
+packages. The fixed-capacity checkpoint table retains anti-rollback history and
+refuses exhaustion instead of silently dropping old checkpoints.
+
+These are local metadata contracts. No HTTPS fetching, online search or background
+installation is implemented here; the common transport and its independent domain
+queues require Stage 33 acceptance. No local fixture qualifies network retrieval.

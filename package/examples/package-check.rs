@@ -42,7 +42,9 @@ fn run() -> Result<(), String> {
     let command = arg(0)?;
     let bytes = read(
         arg(1)?,
-        if command.ends_with("index") {
+        if command.starts_with("source-") {
+            repository::sources::BYTES as u64
+        } else if command.ends_with("index") {
             MAX_INDEX_BYTES
         } else {
             MAX_PACKAGE_BYTES
@@ -92,15 +94,36 @@ fn run() -> Result<(), String> {
                 println!("verified=false");
             }
         }
-        "inspect-index" | "verify-index" => {
-            let index = Index::parse(&bytes).map_err(err)?;
+        "source-application" | "source-driver" => {
+            let domain = if command == "source-driver" {
+                Domain::Driver
+            } else {
+                Domain::Application
+            };
+            let source = repository::sources::Source::parse(&bytes, domain).map_err(err)?;
+            println!(
+                "source=true\ndomain={domain:?}\nidentity={}\npublisher_trust=false",
+                hex(&source.identity().map_err(err)?)
+            );
+        }
+        "inspect-index" | "verify-index" | "inspect-driver-index" | "verify-driver-index" => {
+            let driver = command.ends_with("driver-index");
+            let index = Index::parse_for(
+                &bytes,
+                if driver {
+                    Domain::Driver
+                } else {
+                    Domain::Application
+                },
+            )
+            .map_err(err)?;
             println!(
                 "repository={}\nsequence={}\nentries={}",
                 index.id(),
                 index.sequence(),
                 index.entries().len()
             );
-            if command == "verify-index" {
+            if command.starts_with("verify-") {
                 let policy_bytes = read(arg(2)?, policy::MAX_BYTES as u64)?;
                 let policy = PolicyDocument::parse(&policy_bytes).map_err(err)?;
                 let now = if arg(3)? == "-" {
@@ -117,10 +140,14 @@ fn run() -> Result<(), String> {
                 // Optional exact package binding for a selected entry.
                 if let Some(path) = a.get(7) {
                     let app_bytes = read(path, MAX_PACKAGE_BYTES)?;
-                    let package = Package::parse(&app_bytes)
-                        .map_err(err)?
-                        .verify(&policy.policy())
-                        .map_err(err)?;
+                    let package = (if driver {
+                        driver::parse(&app_bytes)
+                    } else {
+                        Package::parse(&app_bytes)
+                    })
+                    .map_err(err)?
+                    .verify(&policy.policy())
+                    .map_err(err)?;
                     let entry = index
                         .entries()
                         .find(|e| {

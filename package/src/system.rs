@@ -11,8 +11,9 @@ pub const BASE_HEADER_BYTES: usize = 32;
 pub const BASE_ENTRY_BYTES: usize = 64;
 pub const SERVICE_ABI: u64 = 1;
 /// Fixed recovery profile. Role 32 contains catalog metadata, never code.
-pub const BASE_PROFILE_ROLES: [u32; 17] =
-    [1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 19, 20, 32];
+pub const BASE_PROFILE_ROLES: [u32; 18] = [
+    1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 32,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BaseEntry {

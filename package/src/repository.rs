@@ -8,6 +8,7 @@ pub const MAX_VALIDITY_SECONDS: u64 = 7 * 24 * 60 * 60;
 #[derive(Clone, Copy, Debug)]
 pub struct Entry<'a> {
     bytes: &'a [u8],
+    domain: Domain,
 }
 impl<'a> Entry<'a> {
     pub fn publisher(&self) -> [u8; 32] {
@@ -30,7 +31,8 @@ impl<'a> Entry<'a> {
     }
     pub fn bind(&self, package: &VerifiedPackage<'_>) -> Result<(), Error> {
         let profile = package.manifest().compatibility().profile();
-        if self.publisher() != package.publisher()
+        if self.domain != package.manifest().domain()
+            || self.publisher() != package.publisher()
             || self.id() != package.manifest().id()
             || self.release() != package.manifest().release()
             || self.package_bytes() != package.length()
@@ -53,14 +55,19 @@ pub struct RepositoryState<'a> {
 #[derive(Debug)]
 pub struct Index<'a> {
     bytes: &'a [u8],
+    domain: Domain,
     payload: &'a [u8],
 }
 impl<'a> Index<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<Self, Error> {
+        Self::parse_for(bytes, Domain::Application)
+    }
+    pub fn parse_for(bytes: &'a [u8], domain: Domain) -> Result<Self, Error> {
+        let signature = signature_domain(domain)?;
         Envelope::parse(
             bytes.get(..HEADER_BYTES).ok_or(Error::Length)?,
             bytes.len() as u64,
-            Domain::Repository,
+            signature,
         )?;
         let payload = bytes.get(HEADER_BYTES..).ok_or(Error::Length)?;
         if payload.len() < PREFIX_BYTES {
@@ -107,7 +114,11 @@ impl<'a> Index<'a> {
                 return Err(Error::Url);
             }
         }
-        Ok(Self { bytes, payload })
+        Ok(Self {
+            bytes,
+            payload,
+            domain,
+        })
     }
     pub fn id(&self) -> &'a str {
         text(&self.payload[..128]).unwrap()
@@ -118,7 +129,10 @@ impl<'a> Index<'a> {
     pub fn entries(&self) -> impl ExactSizeIterator<Item = Entry<'a>> + '_ {
         self.payload[PREFIX_BYTES..]
             .chunks_exact(ENTRY_BYTES)
-            .map(|bytes| Entry { bytes })
+            .map(|bytes| Entry {
+                bytes,
+                domain: self.domain,
+            })
     }
     /// Returned checkpoint MUST be committed durably before any entry is used.
     /// `now` must come from the trusted clock, never the downloaded index.
@@ -128,7 +142,7 @@ impl<'a> Index<'a> {
         now: Option<u64>,
         state: &RepositoryState<'_>,
     ) -> Result<[u8; 32], Error> {
-        let hash = verify_bytes(self.bytes, Domain::Repository, policy)?;
+        let hash = verify_bytes(self.bytes, signature_domain(self.domain)?, policy)?;
         let now = now.ok_or(Error::Time)?;
         if now < u64_at(self.payload, 136) || now >= u64_at(self.payload, 144) {
             return Err(Error::Time);
@@ -187,3 +201,13 @@ pub fn https_url(url: &str) -> bool {
                 .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
     })
 }
+
+/// Package domains and repository signature domains are deliberately distinct.
+pub fn signature_domain(domain: Domain) -> Result<Domain, Error> {
+    match domain {
+        Domain::Application => Ok(Domain::Repository),
+        Domain::Driver => Ok(Domain::DriverRepository),
+        _ => Err(Error::Policy),
+    }
+}
+pub mod sources;
