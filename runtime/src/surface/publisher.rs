@@ -98,7 +98,7 @@ impl<'a, 'doc, L: AsRef<Layout>> SurfacePublisher<'a, 'doc, L> {
             metadata,
             band,
             request: Request {
-                version: VERSION,
+                version: REQUEST_VERSION,
                 operation: BEGIN,
                 handle: Handle {
                     target,

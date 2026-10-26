@@ -123,6 +123,9 @@ pub struct Scene<'a, L = Layout> {
     text_bindings: [(u32, &'a str); 8],
     text_binding_len: usize,
     theme: theme::Theme,
+    /// The host's accent: an `appearance::ACCENTS` index plus one; 0 keeps
+    /// the one the palette comes with. One byte keeps the scene small.
+    accent: u8,
     images: &'a [crate::image::ImageSet],
 }
 pub struct Semantic<'a> {
@@ -157,6 +160,7 @@ impl<'a> Scene<'a> {
             text_bindings: [(0, ""); 8],
             text_binding_len: 0,
             theme: theme::Theme::Dark,
+            accent: 0,
             images: &[],
         })
     }
@@ -173,6 +177,7 @@ impl<'a> Scene<'a> {
             text_bindings: [(0, ""); 8],
             text_binding_len: 0,
             theme: theme::Theme::Dark,
+            accent: 0,
             images: &[],
         })
     }
@@ -196,6 +201,7 @@ impl<'a> Scene<'a> {
             text_bindings: [(0, ""); 8],
             text_binding_len: 0,
             theme: theme::Theme::Dark,
+            accent: 0,
             images: &[],
         })
     }
@@ -228,6 +234,7 @@ impl<'a> Scene<'a, &'a Layout> {
             text_bindings: [(0, ""); 8],
             text_binding_len: 0,
             theme: theme::Theme::Dark,
+            accent: 0,
             images: &[],
         })
     }
@@ -244,6 +251,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             text_bindings: [(0, ""); 8],
             text_binding_len: 0,
             theme: theme::Theme::Dark,
+            accent: 0,
             images: &[],
         })
     }
@@ -252,6 +260,19 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
     pub fn with_theme(mut self, theme: theme::Theme) -> Self {
         self.theme = theme;
         self
+    }
+    /// The accent chosen on the desktop (`appearance::ACCENTS`), in place of
+    /// the one the palette comes with: `accent`, `selected` and `accent-fill`.
+    pub fn with_accent(mut self, accent: Option<usize>) -> Self {
+        self.accent = match accent {
+            Some(a) if a < crate::appearance::ACCENTS.len() => a as u8 + 1,
+            _ => 0,
+        };
+        self
+    }
+    fn color(&self, token: u8, literal: u32) -> u32 {
+        let accent = self.accent.checked_sub(1).map(usize::from);
+        self.theme.accented(token, literal, accent)
     }
     /// The host's images, found by a `ui-icon src` name. An icon whose name is
     /// missing, or whose smallest size does not fit, keeps the square mark.
@@ -394,11 +415,9 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             }
             let mut s = self.layout().style(self.view, i);
             let mut decoration = self.view.decoration(s);
-            s.color = self.theme.color(s.color_token, s.color) & 0x00ff_ffff;
-            s.background = self.theme.color(s.background_token, s.background);
-            decoration.border_color = self
-                .theme
-                .color(decoration.border_token, decoration.border_color);
+            s.color = self.color(s.color_token, s.color) & 0x00ff_ffff;
+            s.background = self.color(s.background_token, s.background);
+            decoration.border_color = self.color(decoration.border_token, decoration.border_color);
             if s.fill {
                 fill_box(
                     painter,
@@ -598,7 +617,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                     painter,
                     bar.thumb,
                     radius,
-                    self.theme.color(theme::ACCENT, 0) & 0x00ff_ffff,
+                    self.color(theme::ACCENT, 0) & 0x00ff_ffff,
                     255,
                     clip,
                 );

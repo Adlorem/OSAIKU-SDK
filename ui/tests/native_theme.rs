@@ -122,3 +122,70 @@ fn unknown_tokens_and_noncanonical_wire_references_are_refused() {
     doc.decorations[0].border_token = theme::TOKEN_COUNT + 1;
     assert_eq!(doc.encode(&mut wire), Err(Error::Structure));
 }
+
+#[test]
+fn a_chosen_accent_repaints_accent_tokens_and_leaves_the_rest() {
+    use osaiku_ui::appearance::ACCENTS;
+    let doc = compile(
+        r#"<main id="r"><button id="a" class="fill" action="go">Go</button><span id="s" class="pick">Picked</span><span id="t">Text</span></main>"#,
+        ".fill { background-color: theme(accent-fill); border-color: theme(accent); } .pick { background-color: theme(selected); }",
+    )
+    .unwrap();
+    let paint = |theme: Theme, accent| {
+        let mut layout = Layout::EMPTY;
+        let scene = Scene::prepare(&doc, 100, 80, &mut layout)
+            .unwrap()
+            .with_theme(theme)
+            .with_accent(accent);
+        let mut pixels = vec![0; 100 * 80 * 4];
+        raster::rows(&scene, 0, &mut pixels).unwrap();
+        pixels
+    };
+    for (theme, own) in [(Theme::Dark, 0), (Theme::Light, 3)] {
+        // The palette's own accent, chosen or not, paints the same.
+        assert_eq!(paint(theme, None), paint(theme, Some(own)));
+        assert_ne!(paint(theme, None), paint(theme, Some((own + 1) % 4)));
+        // Out of range keeps the palette's own.
+        assert_eq!(paint(theme, None), paint(theme, Some(ACCENTS.len())));
+        let base = usize::from(theme == Theme::Light);
+        for (i, a) in ACCENTS.iter().enumerate() {
+            assert_eq!(
+                theme.accented(theme::ACCENT_FILL, 0, Some(i)),
+                0xff00_0000 | a.fill
+            );
+            assert_eq!(
+                theme.accented(theme::SELECTED, 0, Some(i)),
+                0xff00_0000 | a.selected[base]
+            );
+            assert_eq!(
+                theme.accented(theme::ACCENT, 0, Some(i)),
+                0xff00_0000 | a.token[base]
+            );
+            assert_eq!(
+                theme.accented(theme::TEXT, 0, Some(i)),
+                theme.color(theme::TEXT, 0)
+            );
+        }
+    }
+    // High contrast keeps its own colours.
+    assert_eq!(
+        paint(Theme::Contrast, None),
+        paint(Theme::Contrast, Some(2))
+    );
+}
+
+#[test]
+fn a_transported_theme_id_carries_the_accent() {
+    for theme in [Theme::Dark, Theme::Contrast, Theme::Light] {
+        assert_eq!(Theme::decode(theme as u32), Some((theme, None)));
+        assert_eq!(theme.id_with_accent(None), theme as u32);
+        for accent in 0..4 {
+            let id = theme.id_with_accent(Some(accent));
+            assert_eq!(Theme::decode(id), Some((theme, Some(accent))));
+        }
+        assert_eq!(theme.id_with_accent(Some(4)), theme as u32);
+    }
+    assert_eq!(Theme::decode(3), None);
+    assert_eq!(Theme::decode(5 << 8), None, "no fifth accent");
+    assert_eq!(Theme::decode(1 << 16), None);
+}

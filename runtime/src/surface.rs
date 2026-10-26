@@ -39,6 +39,11 @@ pub const COPY_BASE: u32 = 19;
 /// Discover dirty rows while uploading. DeltaOffer.dirty must initially be empty.
 pub const BEGIN_STREAM: u32 = 20;
 
+/// Request envelope v8 opts into palette IDs with an accent byte. Record
+/// layouts retain VERSION (7). The kernel also accepts v7 requests, whose
+/// geometry must contain only the original palette IDs 0, 1 or 2.
+pub const REQUEST_VERSION: u32 = 8;
+
 /// Fetch authenticated geometry before laying out a frame. No surface is
 /// reserved; BEGIN_OFFER rechecks the offer against the current window.
 pub fn geometry_with(
@@ -46,7 +51,7 @@ pub fn geometry_with(
     mut exchange: impl FnMut(&Request, &mut [u8], &mut Receipt) -> isize,
 ) -> Result<GeometryOffer, PublishError> {
     let request = Request {
-        version: VERSION,
+        version: REQUEST_VERSION,
         operation: GEOMETRY,
         handle: Handle {
             target,

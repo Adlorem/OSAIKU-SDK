@@ -1,9 +1,9 @@
 main { background-color: #00000000; color: $TEXT; font-size: 16px; overflow: hidden; }
-button { height:auto; border-width:0px; border-radius:0px; text-align:left; vertical-align:top; color: $TEXT; font-size: 16px; overflow: hidden; padding: 4px; background-color: $ACCENT; }
+button { height:auto; border-width:0px; border-radius:0px; text-align:left; vertical-align:top; color: $TEXT; font-size: 16px; overflow: hidden; padding: 4px; background-color: theme(accent-fill); }
 button:disabled { color: $MUTED; background-color: $TITLE; }
 #drag { background-color: $TITLE; }
 #content-slot { background-color: $SURFACE; }
 #title { padding: 0px; vertical-align: middle; overflow: hidden; }
 #close { padding: 0px; font-size: 28px; text-align: center; vertical-align: middle; background-color: #00000000; }
-#window-icon { padding: 0px; font-size: 12px; text-align: center; vertical-align: middle; color: $ACCENT; background-color: #00000000; }
+#window-icon { padding: 0px; font-size: 12px; text-align: center; vertical-align: middle; color: theme(accent-fill); background-color: #00000000; }
 .resize { padding: 0px; background-color: #00000000; }
