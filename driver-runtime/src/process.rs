@@ -258,6 +258,14 @@ impl Instance {
             self.calls = self.calls.saturating_sub(5);
         }
     }
+    /// Trusted owner validated a unique completion of a kernel-issued request.
+    /// Repay its bounded ring/context/copy RPC cost, never unsolicited events,
+    /// heartbeat or duplicate completions. CPU scheduling remains independent.
+    pub fn controller_progress(&mut self) {
+        if self.controller && self.phase == Phase::Ready {
+            self.calls = self.calls.saturating_sub(64);
+        }
+    }
     pub fn authorize(&mut self, role: Role, m: &Message, now: u64) -> Result<(), Error> {
         if self.poll(now, true) {
             return Err(Error::Deadline);

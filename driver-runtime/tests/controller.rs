@@ -165,6 +165,70 @@ fn message(op: u64, value: u64, n: u64) -> Message {
     m.length = n;
     m
 }
+fn zero(address: u64, bytes: u64) -> Message {
+    let mut m = message(ZERO_ARENA, address, 8);
+    m.payload[..8].copy_from_slice(&bytes.to_le_bytes());
+    // The real 384-byte process decoder must admit the bounded request too.
+    Message::decode(&m.encode()).unwrap()
+}
+#[test]
+fn bounded_zero_preserves_adjacent_memory_and_refuses_payload_or_escape() {
+    let mut g = gate();
+    for at in (0..4608).step_by(256) {
+        let mut m = message(WRITE_ARENA, 4096 + at, 256);
+        m.payload.fill(0xa5);
+        g.exchange(m).unwrap();
+    }
+    let grant = g.exchange(message(GRANT, 0, 0)).unwrap();
+    assert_eq!(grant.length, 32);
+    assert_eq!(
+        u64::from_le_bytes(grant.payload[24..32].try_into().unwrap()),
+        FEATURE_ZERO_ARENA
+    );
+    g.exchange(zero(4096 + 256, 4096)).unwrap();
+    for (offset, value) in [(0, 0xa5), (256, 0), (4096, 0), (4352, 0xa5)] {
+        assert_eq!(
+            g.exchange(message(READ_ARENA, 4096 + offset, 256))
+                .unwrap()
+                .payload,
+            [value; 256]
+        );
+    }
+    for m in [
+        zero(4096, 4097),
+        zero(4096 + DMA_BYTES - 1, 2),
+        zero(4096, 0),
+    ] {
+        assert_eq!(g.exchange(m), Err(Error::Range));
+    }
+    let mut m = zero(4096, 4096);
+    m.payload[8] = 1;
+    assert_eq!(g.exchange(m), Err(Error::Range));
+    assert_eq!(g.restart(2), Err(Error::State));
+    assert!(!g.revoke());
+    assert_eq!(g.restart(2), Err(Error::State));
+    assert_eq!(g.exchange(zero(4096, 4096)), Err(Error::Stale));
+}
+#[test]
+fn owner_metrics_count_actual_operations_and_do_not_credit_failed_transfers() {
+    let mut m = Metrics::default();
+    m.observe(&zero(4096, 4096), true, 200);
+    m.observe(&message(READ_ARENA, 0, 256), false, 30);
+    m.observe(&message(READ_REGISTER, 0x40, 4), true, 10);
+    assert_eq!(
+        (
+            m.calls,
+            m.failed,
+            m.read_bytes,
+            m.zero_bytes,
+            m.register_reads
+        ),
+        (3, 1, 0, 4096, 1)
+    );
+    assert_eq!((m.cycles, m.max_cycles), (240, 200));
+    m.observe(&message(CLOCK, 0, 0), true, 1);
+    assert_eq!((m.register_reads, m.register_writes), (1, 0));
+}
 #[test]
 fn arena_and_register_grants_cannot_escape_or_alias_msix() {
     let mut g = gate();

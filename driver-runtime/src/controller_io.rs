@@ -9,8 +9,18 @@ pub trait Platform {
     fn write_arena(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Error>;
     fn fence(&mut self) -> Result<(), Error>;
     fn now(&mut self) -> u64;
+    fn zero_arena(&mut self, offset: u64, bytes: usize) -> Result<(), Error> {
+        for at in (0..bytes).step_by(256) {
+            self.write_arena(offset + at as u64, &[0; 256][..(bytes - at).min(256)])?;
+        }
+        Ok(())
+    }
     /// Only return true after stopping the device, DMA fences and IRQ join.
     fn revoke(&mut self) -> bool;
+    /// Trusted owner only: stopped hardware, joined IRQs and retained DMA.
+    fn restart(&mut self, _generation: u64) -> bool {
+        false
+    }
 }
 /// Immutable register inventory from the trusted owner. The complete MSI-X
 /// table/PBA pages are excluded, even if they alias a requested safe register.
@@ -110,6 +120,20 @@ impl<P: Platform> Gate<P> {
             return Err(Error::Range);
         }
         match m.sequence {
+            wire::ZERO_ARENA => {
+                let offset = m.value.checked_sub(self.base).ok_or(Error::Range)?;
+                let bytes = u64::from_le_bytes(m.payload[..8].try_into().unwrap());
+                if m.length != 8
+                    || !(1..=4096).contains(&bytes)
+                    || m.payload[8..] != [0; 248]
+                    || offset.checked_add(bytes).is_none_or(|n| n > self.bytes)
+                {
+                    return Err(Error::Range);
+                }
+                self.platform.zero_arena(offset, bytes as usize)?;
+                m.length = 0;
+                m.payload.fill(0);
+            }
             wire::READ_REGISTER | wire::WRITE_REGISTER => {
                 if m.length != 4
                     || !self
@@ -158,7 +182,8 @@ impl<P: Platform> Gate<P> {
                         {
                             m.payload[i * 8..i * 8 + 8].copy_from_slice(&n.to_le_bytes());
                         }
-                        m.length = 24;
+                        m.payload[24..32].copy_from_slice(&wire::FEATURE_ZERO_ARENA.to_le_bytes());
+                        m.length = 32;
                     }
                     _ => unreachable!(),
                 }
@@ -170,5 +195,13 @@ impl<P: Platform> Gate<P> {
     pub fn revoke(&mut self) -> bool {
         self.closed = true;
         self.platform.revoke()
+    }
+    /// Not exposed through exchange(): a driver cannot grant itself a restart.
+    pub fn restart(&mut self, generation: u64) -> Result<(), Error> {
+        if !self.closed || generation == 0 || !self.platform.restart(generation) {
+            return Err(Error::State);
+        }
+        self.closed = false;
+        Ok(())
     }
 }

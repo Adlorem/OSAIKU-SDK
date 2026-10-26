@@ -5,6 +5,28 @@ use osaiku_driver_runtime::{
 fn scope() -> Scope {
     Scope::new(7, 8, 9).unwrap()
 }
+#[test]
+fn solicited_controller_work_does_not_exhaust_the_idle_flood_budget() {
+    let mut i = ready(Role::Driver);
+    i.admit_controller();
+    let m = Message::new(osaiku_driver_runtime::controller::IO, scope());
+    for _ in 0..1000 {
+        for _ in 0..48 {
+            i.authorize(Role::Driver, &m, 15).unwrap();
+        }
+        i.controller_progress();
+    }
+    // No progress credit without a unique owner-validated completion.
+    let mut refused = false;
+    for _ in 0..8193 {
+        if i.authorize(Role::Driver, &m, 15).is_err() {
+            refused = true;
+            break;
+        }
+    }
+    assert!(refused);
+    assert_eq!(i.failure, Failure::Flood);
+}
 fn ready(role: Role) -> Instance {
     let mut i = Instance::admitted(role, scope(), 1, 1, 10);
     i.authorize(role, &Message::new(op::HELLO, scope()), 11)

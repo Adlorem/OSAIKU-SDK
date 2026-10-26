@@ -13,8 +13,51 @@ pub const PUBLISH: u64 = 5;
 pub const ACQUIRE: u64 = 6;
 pub const CLOCK: u64 = 7;
 pub const GRANT: u64 = 8;
+/// Optional grant feature: one bounded zero operation, no user pointer.
+pub const ZERO_ARENA: u64 = 9;
+pub const FEATURE_ZERO_ARENA: u64 = 1;
 pub const BYTES: usize = 64;
 pub const QUEUE: usize = 32;
+/// Owner-observed costs, independent of any driver-supplied counters.
+#[derive(Clone, Copy, Default)]
+pub struct Metrics {
+    pub calls: u64,
+    pub failed: u64,
+    pub register_reads: u64,
+    pub register_writes: u64,
+    pub read_bytes: u64,
+    pub write_bytes: u64,
+    pub zero_bytes: u64,
+    pub fetches: u64,
+    pub completions: u64,
+    pub cycles: u64,
+    pub max_cycles: u64,
+}
+impl Metrics {
+    pub fn observe(&mut self, m: &crate::process::Message, success: bool, cycles: u64) {
+        self.calls = self.calls.saturating_add(1);
+        self.cycles = self.cycles.saturating_add(cycles);
+        self.max_cycles = self.max_cycles.max(cycles);
+        if !success {
+            self.failed = self.failed.saturating_add(1);
+            return;
+        }
+        let (counter, value) = match (m.operation, m.sequence) {
+            (IO, READ_REGISTER) => (&mut self.register_reads, 1),
+            (IO, WRITE_REGISTER) => (&mut self.register_writes, 1),
+            (IO, READ_ARENA) => (&mut self.read_bytes, m.length),
+            (IO, WRITE_ARENA) => (&mut self.write_bytes, m.length),
+            (IO, ZERO_ARENA) => (
+                &mut self.zero_bytes,
+                u64::from_le_bytes(m.payload[..8].try_into().unwrap()),
+            ),
+            (FETCH, _) => (&mut self.fetches, 1),
+            (COMPLETE, _) => (&mut self.completions, 1),
+            _ => return,
+        };
+        *counter = counter.saturating_add(value);
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
     pub sequence: u64,

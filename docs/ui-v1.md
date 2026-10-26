@@ -544,3 +544,31 @@ each cell; a recycled slot alone must never authorize an operation. Host-owned
 grids can expose the existing SDK scrollbar by setting the container's content
 height and scroll offset. I/O belongs to the provider's continuation; pointer
 movement only updates/coalesces the requested range.
+
+## Bounded tree view (Rust SDK)
+
+`tree_view::Tree<N>` is an allocation-free reusable tree component over stable,
+nonzero `u64` keys. Insert a parent before its children with `push(key, parent,
+branch)`; parent 0 denotes a root. Capacity, duplicate keys, non-branch parents
+and the shared maximum depth are checked. `visible()` yields preorder rows with
+key, source index, depth, expanded and selected state. Children need not be
+contiguous in the input. Bind only the visible range to ordinary SDK buttons.
+
+`set_expanded`, `select` and `navigate(Navigation::...)` retain selection by key.
+Collapsing an ancestor selects it. Refresh with `begin_refresh`, rebuild nodes,
+then `finish_refresh`; surviving expansion/selection is retained and missing
+keys are discarded. Hosts translate their input to the navigation API. Device
+Manager uses disclosure/row actions, existing Tab/Enter, PageUp/PageDown and
+scrollbars; this adds no new wire tag or keyboard protocol.
+
+`tree_view::Geometry` supplies the bounded virtual range and disclosure/label
+rectangles. Paint, input and clipping must share those rectangles. Stable tree
+keys are UI identities, not capabilities: hosts must resolve a click against
+its exact presented revision and recheck device/package authority themselves.
+The Osaiku Device Manager is a concrete host-slot integration (`abi/src/devices_ui.rs`).
+
+`text_model::bind_in_place` can bind a decoded trusted wire template in existing
+Document storage with an 8 KiB text scratch buffer. It preserves static labels
+and rejects missing bindings; discard partial output on error. It avoids keeping
+a second full Document. `bind_into` retains its existing interface and shares
+the binding implementation. Document wire major remains 11.
