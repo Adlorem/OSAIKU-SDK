@@ -144,18 +144,51 @@ pub struct Receipt {
 /// syscall, including when used as an output buffer for READ.
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn transition(request: &Request, payload: &mut [u8], receipt: &mut Receipt) -> isize {
-    unsafe {
-        crate::raw::syscall(
-            crate::abi::number::UI_SURFACE,
-            [
-                request as *const Request as u64,
-                payload.as_mut_ptr() as u64,
-                payload.len() as u64,
-                receipt as *mut Receipt as u64,
-                0,
-            ],
-        ) as isize
+    transition_with(
+        request,
+        payload,
+        receipt,
+        |request, payload, receipt| unsafe {
+            crate::raw::syscall(
+                crate::abi::number::UI_SURFACE,
+                [
+                    request as *const Request as u64,
+                    payload.as_mut_ptr() as u64,
+                    payload.len() as u64,
+                    receipt as *mut Receipt as u64,
+                    0,
+                ],
+            ) as isize
+        },
+    )
+}
+
+/// Native SDK entry point policy, also injectable for host verification. Each
+/// new candidate negotiates afresh (no stale device generation cache). This SDK
+/// has no Mesa Painter yet, so it honestly advertises no UI_RENDERER capability.
+/// GPU-09 will replace that declaration and dispatch to the negotiated Painter.
+/// Legacy pixel calls remain usable ONLY after an explicit fallback response.
+pub fn transition_with(
+    request: &Request,
+    payload: &mut [u8],
+    receipt: &mut Receipt,
+    mut exchange: impl FnMut(&Request, &mut [u8], &mut Receipt) -> isize,
+) -> isize {
+    if matches!(
+        request.operation,
+        BEGIN | BEGIN_OFFER | BEGIN_FRAME | BEGIN_DELTA | BEGIN_STREAM
+    ) {
+        let selection = crate::graphics::negotiate_with(
+            crate::graphics::Negotiation::gpu_default(0),
+            &mut exchange,
+        );
+        match selection {
+            Ok(r) if r.renderer == 0 && r.fallback != crate::graphics::fallback::NONE => (),
+            Err(PublishError::Transport(code)) => return code,
+            _ => return crate::abi::SYSCALL_ERR_INVALID_STATE,
+        }
     }
+    exchange(request, payload, receipt)
 }
 const _: () = assert!(core::mem::size_of::<Publication>() <= MAX_METADATA);
 
