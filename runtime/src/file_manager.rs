@@ -74,6 +74,7 @@ const _: () = {
                 && commands[i] != crate::file_browser::SKIP
         );
         assert!(commands[i] != crate::file_export::SAVE);
+        assert!(commands[i] != crate::file_export::SAVE_BOOT_USB);
         let mut j = 0;
         while j < i {
             assert!(commands[i] != commands[j]);

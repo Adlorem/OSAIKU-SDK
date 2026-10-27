@@ -46,6 +46,7 @@ pub struct SurfacePublisher<'a, 'doc, L: AsRef<Layout>> {
     y: u32,
     tracker: Option<&'a mut DirtyTracker>,
     prepared_band: Option<(u32, dirty::Fingerprint, bool)>,
+    timing: crate::gpu_timing::Accumulator,
 }
 
 impl<'a, 'doc, L: AsRef<Layout>> SurfacePublisher<'a, 'doc, L> {
@@ -113,6 +114,7 @@ impl<'a, 'doc, L: AsRef<Layout>> SurfacePublisher<'a, 'doc, L> {
             y: 0,
             tracker: None,
             prepared_band: None,
+            timing: crate::gpu_timing::Accumulator::EMPTY,
         })
     }
 
@@ -247,7 +249,11 @@ impl<'a, 'doc, L: AsRef<Layout>> SurfacePublisher<'a, 'doc, L> {
         } else {
             let rows = band_rows.min(self.request.extent.height - self.y);
             let bytes = &mut self.band[..rows as usize * stride];
-            osaiku_ui::raster::rows(self.scene, self.y, bytes).map_err(PublishError::Content)?;
+            let start = crate::gpu_timing::stamp();
+            let rendered = osaiku_ui::raster::rows(self.scene, self.y, bytes);
+            self.timing
+                .add(start, crate::gpu_timing::stamp(), bytes.len());
+            rendered.map_err(PublishError::Content)?;
             let hash = dirty::fingerprint(bytes);
             let changed = !matches!(self.offer, Offer::Stream(..))
                 || self.tracker.as_ref().unwrap().changed(index, hash);
@@ -436,8 +442,10 @@ impl<'a, 'doc, L: AsRef<Layout>> SurfacePublisher<'a, 'doc, L> {
                 }
                 self.request.operation = UPLOAD;
                 self.request.offset = u64::from(self.y) * stride as u64;
+                let start = crate::gpu_timing::stamp();
                 let rendered =
                     osaiku_ui::raster::rows(self.scene, self.y, &mut self.band[..length]);
+                self.timing.add(start, crate::gpu_timing::stamp(), length);
                 if let Err(error) = rendered {
                     self.band.fill(0);
                     return Err(PublishError::Content(error));
@@ -471,6 +479,7 @@ impl<'a, 'doc, L: AsRef<Layout>> SurfacePublisher<'a, 'doc, L> {
                 let code = exchange(&self.request, bytes, &mut receipt);
                 self.accept(code, &receipt)?;
                 self.phase = Phase::Sealed;
+                crate::gpu_timing::emit(self.timing.record(0));
                 Ok(PublishStep::Sealed {
                     handle: self.request.handle,
                 })
