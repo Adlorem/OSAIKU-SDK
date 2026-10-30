@@ -5,6 +5,7 @@ struct State {
     calls: Vec<(u64, u64, usize)>,
     dead: bool,
     fail: Option<usize>,
+    die_after: Option<usize>,
     quarantined: usize,
 }
 #[derive(Clone, Default)]
@@ -28,6 +29,9 @@ impl Transport for Link {
             return Err(Error::Timeout);
         }
         output.fill(0x73);
+        if s.die_after == Some(s.calls.len()) {
+            s.dead = true;
+        }
         Ok(())
     }
     fn quarantine(&mut self) {
@@ -95,6 +99,27 @@ fn every_partial_write_or_flush_failure_is_uncertain_and_never_replayed() {
         assert_eq!(c.flush(), Err(Error::Stale));
         assert_eq!(l.0.borrow().calls.len(), cut);
     }
+}
+#[test]
+fn loss_between_write_chunks_or_before_durable_flush_is_uncertain() {
+    for cut in 1..=3 {
+        let l = Link::default();
+        l.0.borrow_mut().die_after = Some(cut);
+        let mut c = Client::attach(l.clone(), geometry()).unwrap();
+        assert_eq!(c.write(0, &[1; 8704], true), Err(Error::UnknownCommit));
+        assert_eq!(l.0.borrow().calls.len(), cut);
+        assert!(!c.live());
+        assert_eq!(c.flush(), Err(Error::Stale));
+        assert_eq!(l.0.borrow().calls.len(), cut);
+    }
+}
+#[test]
+fn loss_before_first_write_keeps_the_definite_no_submission_result() {
+    let l = Link::default();
+    let mut c = Client::attach(l.clone(), geometry()).unwrap();
+    l.0.borrow_mut().dead = true;
+    assert_eq!(c.write(0, &[1; 4096], true), Err(Error::Stale));
+    assert!(l.0.borrow().calls.is_empty());
 }
 #[test]
 fn stale_generation_and_failed_read_permanently_close_the_client() {

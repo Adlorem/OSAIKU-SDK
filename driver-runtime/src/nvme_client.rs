@@ -116,10 +116,21 @@ impl<T: Transport> Client<T> {
                 lba + (i * self.geometry.limit / 512) as u64,
                 chunk,
                 &mut [],
-            )?;
+            )
+            .map_err(|error| {
+                // Earlier chunks already reached the device. Losing the
+                // owner before the next submission is still a partial write,
+                // never a definite refusal of the whole caller request.
+                if i == 0 {
+                    error
+                } else {
+                    Error::UnknownCommit
+                }
+            })?;
         }
         if durable {
-            self.flush()?;
+            // All data was submitted, but durability requires this receipt.
+            self.flush().map_err(|_| Error::UnknownCommit)?;
         }
         Ok(())
     }
