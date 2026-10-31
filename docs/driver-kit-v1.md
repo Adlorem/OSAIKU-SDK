@@ -420,6 +420,21 @@ during long shutdown waits; operation deadlines remain independently bounded.
 The OS example `drivers/nvme` implements the synchronous `block_io::Media`
 contract and a native executable using only public SDK dependencies. Filesystem
 mounts, protected partitions, maintenance/write grants and recovery are owned
-by the trusted storage layer. Its system-disk adapter/handoff is not enabled;
-the qualified platform allowlist is empty. Test files are separate from all
+by the trusted storage layer. The OS enables its system-disk adapter only after
+the shared platform domain admits the controller; this does not establish
+physical qualification for SC=0/RMRR platforms. Test files are separate from all
 production modules, including the emulator's fault injection helpers.
+
+# Distribution trust (2026-10-31)
+
+`osaiku_package::driver::TrustClass` describes host-assigned provenance, not a
+manifest field or a privilege requested by the driver. The OS assigns `System`
+only to drivers loaded from its authenticated release set; catalog-loaded
+packages are `Installable`, including byte-identical copies signed by the same
+publisher. Current NVMe/xHCI controller transports are system-only. Installable
+class drivers retain mediated transports; direct assignment requires a separate
+qualified platform implementation. Both classes remain userspace processes and
+must pass DMA/IRQ/memory/lifetime admission. A valid package signature alone does
+not grant system trust, physical memory, firmware reservations, or IOMMU access.
+System drivers are updated through authenticated system releases, not catalog
+replacement. No driver package format or syscall ABI change is introduced.

@@ -139,6 +139,14 @@ impl<P: Platform> Gate<P> {
         }
         Ok(m)
     }
+    /// Trusted lifecycle owner only; never dispatched from a process message.
+    pub fn restart(&mut self, generation: u64) -> Result<(), Error> {
+        if !self.closed || generation == 0 || !self.platform.restart(generation) {
+            return Err(Error::State);
+        }
+        self.closed = false;
+        Ok(())
+    }
     pub fn revoke(&mut self) -> bool {
         self.closed = true;
         self.platform.revoke()
