@@ -21,6 +21,7 @@ pub mod file_manager;
 pub mod files;
 pub mod gpu_timing;
 pub mod graphics;
+pub mod bcs;
 pub mod hosted;
 pub mod ipc;
 pub mod launch;
