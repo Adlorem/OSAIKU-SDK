@@ -225,6 +225,7 @@ pub fn live_state(state: u64) -> bool {
         ProcessState::BlockedOnIpc,
         ProcessState::BlockedOnReply,
         ProcessState::BlockedOnStorage,
+        ProcessState::BlockedOnGpu,
     ]
     .iter()
     .any(|value| state == *value as u64)
