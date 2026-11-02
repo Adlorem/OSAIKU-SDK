@@ -51,31 +51,75 @@ fn geometry() -> Geometry {
     }
 }
 #[test]
-fn splits_mdts_and_durability_requires_a_flush_receipt() {
+fn one_request_per_arena_buffer_and_durability_uses_fua() {
+    // The driver splits by MDTS and keeps those commands in flight together;
+    // the client no longer pays a separate round trip per controller limit.
     let l = Link::default();
     let mut c = Client::attach(l.clone(), geometry()).unwrap();
     c.write(8, &[1; 8704], true).unwrap();
-    assert_eq!(
-        l.0.borrow().calls,
-        [
-            (wire::WRITE, 8, 4096),
-            (wire::WRITE, 16, 4096),
-            (wire::WRITE, 24, 512),
-            (wire::FLUSH, 0, 0)
-        ]
-    );
+    assert_eq!(l.0.borrow().calls, [(wire::WRITE_FUA, 8, 8704)]);
     l.0.borrow_mut().calls.clear();
-    let mut out = [0; 8704];
+    let mut out = vec![0; 262144];
     c.read(8, &mut out).unwrap();
-    assert_eq!(out, [0x73; 8704]);
+    assert!(out.iter().all(|b| *b == 0x73));
+    assert_eq!(l.0.borrow().calls, [(wire::READ, 8, 262144)]);
+}
+#[test]
+fn gathered_runs_are_checked_before_any_submission() {
+    let page = [5u8; 4096];
+    let pages = [&page; 65];
+    let l = Link::default();
+    let mut c = Client::attach(l.clone(), geometry()).unwrap();
+    let too_many: Vec<(u64, &[&[u8; 4096]])> = (0..=wire::MAX_SEGMENTS as u64)
+        .map(|i| (i * 8, &pages[..1]))
+        .collect();
+    for runs in [
+        &[][..],
+        &[(0, &pages[..0])][..],
+        &[(1020, &pages[..1])][..],
+        &[(u64::MAX, &pages[..1])][..],
+        &[(0, &pages[..64]), (600, &pages[..1])][..],
+        &too_many[..],
+    ] {
+        assert_eq!(c.write_runs(runs), Err(Error::InvalidRange));
+    }
+    assert!(l.0.borrow().calls.is_empty());
+    assert!(c.live());
+    // A transport without a gathered request writes the same pages in order.
+    c.write_runs(&[(16, &pages[..2]), (100, &pages[..1])])
+        .unwrap();
     assert_eq!(
         l.0.borrow().calls,
         [
-            (wire::READ, 8, 4096),
-            (wire::READ, 16, 4096),
-            (wire::READ, 24, 512)
+            (wire::WRITE, 16, 4096),
+            (wire::WRITE, 24, 4096),
+            (wire::WRITE, 100, 4096)
         ]
     );
+    l.0.borrow_mut().fail = Some(4);
+    assert_eq!(
+        c.write_runs(&[(16, &pages[..1])]),
+        Err(Error::UnknownCommit)
+    );
+    assert!(!c.live());
+    assert_eq!(c.write_runs(&[(16, &pages[..1])]), Err(Error::Stale));
+    assert_eq!(l.0.borrow().calls.len(), 4);
+}
+
+#[test]
+fn read_scatterlist_validates_all_ranges_and_output_before_io() {
+    let l = Link::default();
+    let mut c = Client::attach(l.clone(), geometry()).unwrap();
+    for runs in [vec![], vec![(0, 0)], vec![(0, 1), (1020, 1)], vec![(0, usize::MAX)],
+        vec![(0, 1); wire::MAX_SEGMENTS + 1]] {
+        assert_eq!(c.read_runs(&runs, &mut [0; 8192]), Err(Error::InvalidRange));
+    }
+    assert!(l.0.borrow().calls.is_empty());
+    c.read_runs(&[(100, 1), (8, 1)], &mut [0; 8192]).unwrap();
+    assert_eq!(l.0.borrow().calls, [(wire::READ, 100, 4096), (wire::READ, 8, 4096)]);
+    l.0.borrow_mut().fail = Some(3);
+    assert_eq!(c.read_runs(&[(100, 1)], &mut [0; 4096]), Err(Error::Timeout));
+    assert!(!c.live());
 }
 #[test]
 fn validates_the_whole_range_before_first_partial_write() {
@@ -89,11 +133,16 @@ fn validates_the_whole_range_before_first_partial_write() {
 }
 #[test]
 fn every_partial_write_or_flush_failure_is_uncertain_and_never_replayed() {
-    for cut in 1..=4 {
+    for cut in 1..=2 {
         let l = Link::default();
         l.0.borrow_mut().fail = Some(cut);
         let mut c = Client::attach(l.clone(), geometry()).unwrap();
-        assert_eq!(c.write(0, &[1; 8704], true), Err(Error::UnknownCommit));
+        let result = if cut == 1 {
+            c.write(0, &[1; 8704], true)
+        } else {
+            c.write(0, &[1; 8704], false).and_then(|()| c.flush())
+        };
+        assert_eq!(result, Err(Error::UnknownCommit));
         assert_eq!(l.0.borrow().calls.len(), cut);
         assert!(!c.live());
         assert_eq!(c.flush(), Err(Error::Stale));
@@ -101,8 +150,8 @@ fn every_partial_write_or_flush_failure_is_uncertain_and_never_replayed() {
     }
 }
 #[test]
-fn loss_between_write_chunks_or_before_durable_flush_is_uncertain() {
-    for cut in 1..=3 {
+fn owner_loss_during_fua_is_uncertain() {
+    for cut in 1..=1 {
         let l = Link::default();
         l.0.borrow_mut().die_after = Some(cut);
         let mut c = Client::attach(l.clone(), geometry()).unwrap();

@@ -115,6 +115,25 @@ pub struct Gate<P: Platform> {
     closed: bool,
 }
 impl<P: Platform> Gate<P> {
+    /// Typed kernel-owner access with the same register/arena restrictions.
+    pub fn read_register(&mut self, offset: u32) -> Result<u32, Error> {
+        if self.closed || !self.registers.allows(u64::from(offset), false) { return Err(Error::Permission); }
+        self.platform.read_register(offset)
+    }
+    pub fn write_register(&mut self, offset: u32, value: u32) -> Result<(), Error> {
+        if self.closed || !self.registers.allows(u64::from(offset), true) { return Err(Error::Permission); }
+        self.platform.write_register(offset, value)
+    }
+    pub fn fence(&mut self) -> Result<(), Error> {
+        if self.closed { return Err(Error::Stale); }
+        self.platform.fence()
+    }
+    pub fn now(&mut self) -> u64 { self.platform.now() }
+    pub fn owner_zero(&mut self, address: u64, bytes: usize) -> Result<(), Error> {
+        let offset = self.owner_range(address, bytes)?;
+        if bytes > 4096 { return Err(Error::Range); }
+        self.platform.zero_arena(offset, bytes)
+    }
     /// Trusted owner only. The caller serializes this borrow against revoke and
     /// restart. Platform revalidates the live domain on every bounded copy;
     /// no pointer or reusable authorization is returned to either caller.

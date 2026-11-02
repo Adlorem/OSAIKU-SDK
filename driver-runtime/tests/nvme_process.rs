@@ -93,6 +93,11 @@ fn write_stays_dirty_until_successful_flush_and_receipt_consumption() {
     c.take(id).unwrap();
     assert!(c.idle());
     assert!(!c.clean());
+    let id = c.submit(1, WRITE_FUA, 16, 512, 4096).unwrap();
+    c.fetch();
+    c.complete(Reply { generation: 9, sequence: id, bytes: 512, failed: false }).unwrap();
+    c.take(id).unwrap();
+    assert!(!c.clean(), "FUA must not discharge a preceding ordinary write");
     let id = c.submit(1, FLUSH, 0, 0, 0).unwrap();
     c.fetch();
     c.complete(Reply {

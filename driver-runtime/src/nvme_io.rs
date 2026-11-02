@@ -41,6 +41,21 @@ pub struct Gate<P: Platform> {
     closed: bool,
 }
 impl<P: Platform> Gate<P> {
+    /// Typed kernel-owner operations. Retain the same aperture exclusions and
+    /// closed-state checks as the process ABI without serializing a message.
+    pub fn read_register(&mut self, offset: u32) -> Result<u32, Error> {
+        if self.closed || !self.registers.allows(u64::from(offset), false) { return Err(Error::Permission); }
+        self.platform.read_register(offset)
+    }
+    pub fn write_register(&mut self, offset: u32, value: u32) -> Result<(), Error> {
+        if self.closed || !self.registers.allows(u64::from(offset), true) { return Err(Error::Permission); }
+        self.platform.write_register(offset, value)
+    }
+    pub fn fence(&mut self) -> Result<(), Error> {
+        if self.closed { return Err(Error::Stale); }
+        self.platform.fence()
+    }
+    pub fn now(&mut self) -> u64 { self.platform.now() }
     /// Trusted owner only, serialized with revoke/restart. Each call still
     /// enters Platform's current-domain check; exchange keeps its 256-byte ABI.
     pub fn owner_read(&mut self, address: u64, bytes: &mut [u8]) -> Result<(), Error> {
@@ -160,9 +175,80 @@ impl<P: Platform> Gate<P> {
                     _ => self.platform.fence()?,
                 }
             }
+            wire::SUBMIT => {
+                // Same authority as WRITE_ARENA into a submission ring page,
+                // PUBLISH and WRITE_REGISTER of that queue's tail doorbell.
+                let entries = (m.length / 64) as usize;
+                if m.length % 64 != 0 {
+                    return Err(Error::Range);
+                }
+                let (queue, tail, slots) = wire::parse_submit(m.value, entries)?;
+                let doorbell = self.doorbell(queue, false)?;
+                let ring = crate::nvme::dma_region(usize::from(queue) * 2)
+                    .map_err(|_| Error::Range)?
+                    .0;
+                for (i, slot) in slots[..entries].iter().enumerate() {
+                    self.platform
+                        .write_arena(ring + u64::from(*slot) * 64, &m.payload[i * 64..i * 64 + 64])?;
+                }
+                self.platform.fence()?;
+                self.platform.write_register(doorbell, u32::from(tail))?;
+                m.payload.fill(0);
+                m.length = 0;
+            }
+            wire::REAP => {
+                // Same authority as READ_ARENA of a completion ring page, a
+                // CSTS read and WRITE_REGISTER of that queue's head doorbell.
+                // The driver still validates every copied entry itself.
+                if m.length != 0 || !self.registers.allows(0x1c, false) {
+                    return Err(Error::Range);
+                }
+                let (queue, head, phase, entries, max) = wire::parse_reap(m.value)?;
+                let doorbell = self.doorbell(queue, true)?;
+                let ring = crate::nvme::dma_region(usize::from(queue) * 2 + 1)
+                    .map_err(|_| Error::Range)?
+                    .0;
+                m.payload.fill(0);
+                let (mut index, mut expected, mut count) = (head, phase, 0);
+                while count < max {
+                    let at = ring + u64::from(index) * 16;
+                    // Dword 3 carries the phase tag: read the others after it.
+                    let mut status = [0; 4];
+                    self.platform.read_arena(at + 12, &mut status)?;
+                    if ((u32::from_le_bytes(status) >> 16) & 1 != 0) != expected {
+                        break;
+                    }
+                    // Ownership must be acquired before copying CQ contents.
+                    self.platform.fence()?;
+                    self.platform
+                        .read_arena(at, &mut m.payload[count * 16..count * 16 + 16])?;
+                    count += 1;
+                    index += 1;
+                    if index == entries {
+                        index = 0;
+                        expected = !expected;
+                    }
+                }
+                m.offset = 0;
+                if count == 0 {
+                    m.offset = u64::from(self.platform.read_register(0x1c)?);
+                } else {
+                    self.platform.fence()?;
+                    self.platform.write_register(doorbell, u32::from(index))?;
+                }
+                m.length = (count * 16) as u64;
+                m.value = self.platform.now();
+            }
             _ => return Err(Error::Permission),
         }
         Ok(m)
+    }
+    fn doorbell(&self, queue: u16, completion: bool) -> Result<u32, Error> {
+        let offset = 0x1000 + (2 * u32::from(queue) + u32::from(completion)) * self.registers.stride;
+        if !self.registers.allows(u64::from(offset), true) {
+            return Err(Error::Permission);
+        }
+        Ok(offset)
     }
     /// Trusted lifecycle owner only; never dispatched from a process message.
     pub fn restart(&mut self, generation: u64) -> Result<(), Error> {

@@ -431,6 +431,14 @@ impl Queue {
     pub fn completion_head(&self) -> u16 {
         self.completion_head
     }
+    /// Phase tag of the next host-owned completion entry.
+    pub fn completion_phase(&self) -> bool {
+        self.phase
+    }
+    /// Ring size of this queue (both its submission and completion rings).
+    pub fn entries(&self) -> u16 {
+        self.entries
+    }
     pub fn in_use(&self) -> usize {
         self.outstanding
     }
