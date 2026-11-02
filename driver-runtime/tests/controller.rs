@@ -4,6 +4,53 @@ use osaiku_driver_runtime::{
     process::{Instance, Message, Role},
     protocol::{Error, Scope},
 };
+#[test]
+fn scratchpad_geometry_decodes_full_field_and_retains_domain_budget() {
+    assert_eq!(XHCI_DMA_PAGE_BUDGET, 371);
+    assert_eq!(XHCI_MAX_SCRATCHPADS, 171);
+    assert_eq!(xhci_scratchpad_count(0x14200054), 34);
+    assert_eq!(xhci_arena_pages(0x14200054), 234);
+    for n in 0..=1023u32 {
+        let encoded = ((n & 31) << 27) | ((n >> 5) << 21);
+        assert_eq!(u32::from(xhci_scratchpad_count(encoded)), n);
+        let array_pages = match n { 0 => 0, 1..=512 => 1, _ => 2 };
+        assert_eq!(xhci_arena_pages(encoded), DMA_BYTES / 4096 + array_pages + u64::from(n));
+        assert_eq!(xhci_arena_pages(encoded) <= XHCI_DMA_PAGE_BUDGET, n <= 171);
+    }
+}
+#[test]
+fn endpoint_buffers_are_disjoint_aligned_and_fit_every_page_aligned_arena() {
+    for base in (4096..=65536).step_by(4096) {
+        let mut end = base + 4 * 4096;
+        for slot in 1..=8 {
+            let start = xhci_slot_base(base, slot);
+            assert!(start >= end);
+            for buffer in 0..4 {
+                let at = xhci_buffer(base, slot, buffer);
+                assert!(at >= start + 6 * 4096); // contexts + four rings
+                assert_eq!(at % 16384, 0);
+                let last = at + XHCI_TRANSFER_BYTES as u64;
+                assert_eq!(at / 65536, (last - 1) / 65536);
+                assert!(last <= start + XHCI_SLOT_PAGES * 4096);
+                if buffer > 0 { assert!(at >= end); }
+                end = last;
+            }
+        }
+        assert!(end <= base + DMA_BYTES);
+    }
+}
+#[test]
+fn larger_data_transfer_does_not_expand_control_wire_limit() {
+    let mut r = request(9);
+    r.operation = request::TRANSFER;
+    r.length = XHCI_TRANSFER_BYTES as u16;
+    assert_eq!(Request::decode(&r.encode()), Ok(r));
+    r.length += 1;
+    assert_eq!(Request::decode(&r.encode()), Err(Error::Range));
+    r.operation = request::CONTROL;
+    r.length = 4097;
+    assert_eq!(Request::decode(&r.encode()), Err(Error::Range));
+}
 fn request(generation: u64) -> Request {
     Request {
         sequence: 1,
@@ -139,9 +186,12 @@ impl Platform for Hardware {
     }
 }
 fn gate() -> Gate<Hardware> {
+    gate_bytes(DMA_BYTES)
+}
+fn gate_bytes(bytes: u64) -> Gate<Hardware> {
     Gate::new(
         Hardware {
-            memory: vec![0; DMA_BYTES as usize],
+            memory: vec![0; bytes as usize],
             stopped: false,
         },
         Registers {
@@ -154,9 +204,23 @@ fn gate() -> Gate<Hardware> {
             forbidden: [Some((0x3000, 0x4000)), None],
         },
         4096,
-        DMA_BYTES,
+        bytes,
     )
     .unwrap()
+}
+#[test]
+fn physical_scratchpad_pool_grants_only_234_pages_not_the_profile_ceiling() {
+    let bytes = xhci_arena_pages(0x14200054) * 4096;
+    let mut g = gate_bytes(bytes);
+    let last = 4096 + bytes - 8;
+    let mut write = message(WRITE_ARENA, last, 8);
+    write.payload[..8].copy_from_slice(&[0xa5; 8]);
+    g.exchange(write).unwrap();
+    assert_eq!(&g.exchange(message(READ_ARENA, last, 8)).unwrap().payload[..8], &[0xa5; 8]);
+    assert_eq!(g.exchange(message(READ_ARENA, last, 9)), Err(Error::Range));
+    assert_eq!(g.exchange(zero(4096 + bytes, 1)), Err(Error::Range));
+    g.exchange(zero(last, 8)).unwrap();
+    assert_eq!(&g.exchange(message(READ_ARENA, last, 8)).unwrap().payload[..8], &[0; 8]);
 }
 fn message(op: u64, value: u64, n: u64) -> Message {
     let mut m = Message::new(IO, Scope::new(1, 1, 1).unwrap());

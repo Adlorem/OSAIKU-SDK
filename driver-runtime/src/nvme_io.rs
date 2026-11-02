@@ -1,6 +1,9 @@
 //! NVMe-specific register/arena filter over a platform-admitted DRV-11 domain.
 use crate::{controller_io::Platform, nvme_process as wire, process::Message, protocol::Error};
 pub const DMA_BYTES: u64 = crate::nvme::DMA_PAGES * 4096;
+/// One synchronous trusted-owner copy, serialized against revoke/restart.
+/// Does not enlarge the DMA arena, a process message, or the controller limit.
+pub const OWNER_COPY_BYTES: usize = 64 * 1024;
 pub struct Registers {
     pub aperture: u32,
     pub stride: u32,
@@ -38,6 +41,28 @@ pub struct Gate<P: Platform> {
     closed: bool,
 }
 impl<P: Platform> Gate<P> {
+    /// Trusted owner only, serialized with revoke/restart. Each call still
+    /// enters Platform's current-domain check; exchange keeps its 256-byte ABI.
+    pub fn owner_read(&mut self, address: u64, bytes: &mut [u8]) -> Result<(), Error> {
+        let offset = self.owner_range(address, bytes.len())?;
+        self.platform.read_arena(offset, bytes)
+    }
+    pub fn owner_write(&mut self, address: u64, bytes: &[u8]) -> Result<(), Error> {
+        let offset = self.owner_range(address, bytes.len())?;
+        self.platform.write_arena(offset, bytes)
+    }
+    fn owner_range(&self, address: u64, length: usize) -> Result<u64, Error> {
+        if self.closed {
+            return Err(Error::Stale);
+        }
+        let offset = address.checked_sub(self.base).ok_or(Error::Range)?;
+        if length == 0 || length > OWNER_COPY_BYTES
+            || offset.checked_add(length as u64).is_none_or(|end| end > DMA_BYTES)
+        {
+            return Err(Error::Range);
+        }
+        Ok(offset)
+    }
     pub fn new(
         platform: P,
         registers: Registers,
