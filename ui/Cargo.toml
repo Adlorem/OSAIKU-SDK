@@ -1,6 +1,6 @@
 [package]
 name = "osaiku-ui"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 license.workspace = true
 description = "Bounded declarative native UI contracts and compiler for OSAIKU"

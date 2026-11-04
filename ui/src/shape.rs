@@ -129,6 +129,9 @@ pub struct RoundedShape {
 }
 
 impl RoundedShape {
+    pub fn gpu_parts(&self) -> (Rect, u16, Option<[u16; 4]>, u8) {
+        (self.rect, self.radius, self.widths, self.alpha)
+    }
     /// `None` when nothing would be painted: a ring with no border.
     fn new(rect: Rect, radius: u32, widths: Option<[u32; 4]>, alpha: u8) -> Option<Self> {
         let radius = radius

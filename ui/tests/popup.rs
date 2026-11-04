@@ -12,6 +12,15 @@ use osaiku_ui::{
 const HTML: &str = r#"<main id="root"><section id="list"><button id="row-a" action="open-a">A</button><button id="row-b" action="open-b">B</button><section id="tall"><p id="filler">.</p></section></section><ui-popup-menu id="menu" action="close" bind:hidden="closed"><ui-list-item id="cut" action="cut"><span id="cut-label">Wytnij</span></ui-list-item><ui-list-item id="copy" action="copy"><span id="copy-label">Kopiuj</span></ui-list-item></ui-popup-menu></main>"#;
 const CSS: &str = "main { padding:0px; } #list { padding:10px; gap:4px; overflow:auto; height:200px; } button { height:30px; } #tall { height:600px; } #menu { width:160px; padding:4px; gap:2px; border-radius:6px; background-color:theme(card); } ui-list-item { height:28px; padding:4px; }";
 
+#[test]
+fn popup_shadow_is_independent_of_raster_band_boundaries() {
+    let d=menu(true,20,118); // menu bottom=184, shadow reaches194 (crosses192)
+    let scene=Scene::from_document(&d,200,240).unwrap();
+    let render=|rows:usize|{let mut out=vec![0;200*240*4];
+        for (i,band) in out.chunks_mut(200*4*rows).enumerate(){osaiku_ui::raster::rows(&scene,(i*rows)as u32,band).unwrap();}out};
+    assert_eq!(render(32),render(31));
+}
+
 fn at(d: &Document, id: &str) -> usize {
     d.nodes[..d.len as usize]
         .iter()

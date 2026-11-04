@@ -71,6 +71,8 @@ pub struct UiTextGlyph {
 }
 
 impl UiTextGlyph {
+    /// Immutable packed coverage identity includes the baked face, size and scale.
+    pub fn packed_coverage(&self) -> &'static [u8] { self.coverage }
     /// Coverage 0..=255 of inked pixel (x, y), row-major from the box's top
     /// left. Stored as 16 levels, two pixels per byte, high nibble first.
     pub fn alpha(&self, x: u32, y: u32) -> u8 {

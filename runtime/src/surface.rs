@@ -10,6 +10,7 @@ mod reader;
 mod receiver;
 mod supervisor;
 pub use osaiku_ui::surface::*;
+pub use crate::gpu_painter::{BEGIN_GPU, GpuOffer};
 pub use publisher::{PublishStep, SurfacePublisher};
 pub use reader::{ReadChunk, ReadError, SurfaceReader};
 pub use receiver::{ReceiveStep, ReceivedFrame, SurfaceReceiver};
@@ -165,8 +166,8 @@ pub unsafe fn transition(request: &Request, payload: &mut [u8], receipt: &mut Re
 
 /// Native SDK entry point policy, also injectable for host verification. Each
 /// new candidate negotiates afresh (no stale device generation cache). This SDK
-/// has no Mesa Painter yet, so it honestly advertises no UI_RENDERER capability.
-/// GPU-09 will replace that declaration and dispatch to the negotiated Painter.
+/// pixel-only entry advertises no UI_RENDERER capability. HostedRaster first
+/// tries the GPU Painter and reaches this entry only for a CPU fallback.
 /// Legacy pixel calls remain usable ONLY after an explicit fallback response.
 pub fn transition_with(
     request: &Request,
