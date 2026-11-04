@@ -1,7 +1,7 @@
 #![no_std]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-//! Owner-side contracts and a native copied-message transport.
+//! Owner-side contracts, native control messages and bounded shared L2 queues.
 //! Neither a local contract value nor a syscall number confers hardware authority.
 //! A trusted host retains these ledgers; peer messages cannot instantiate or
 //! replace its entries. No Drop operation claims that DMA has stopped.
@@ -23,6 +23,11 @@ pub mod controller_io;
 pub mod hid;
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
 pub mod native;
+#[forbid(unsafe_code)]
+pub mod network;
+pub mod network_client;
+pub mod network_driver;
+pub mod network_ring;
 #[forbid(unsafe_code)]
 pub mod nvme;
 pub mod nvme_client;

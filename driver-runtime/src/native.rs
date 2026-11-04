@@ -1,4 +1,5 @@
-//! Native copy transport. Only compiled for the freestanding x86_64 target.
+//! Native control, shared CPU pages and sequenced process events.
+//! Only compiled for the freestanding x86_64 target.
 use crate::process::{Message, BYTES, SYSCALL};
 use core::arch::asm;
 fn invoke(number: u64, args: [u64; 5]) -> isize {
@@ -60,5 +61,35 @@ pub fn log(text: &str) -> Result<(), isize> {
 pub fn exit(code: u64) -> ! {
     unsafe {
         asm!("int 0x80",in("rax") 1u64,in("rdi") code,clobber_abi("C"),options(noreturn));
+    }
+}
+
+pub fn shared(
+    request: crate::protocol::shared::Request,
+) -> Result<crate::protocol::shared::Request, isize> {
+    use crate::protocol::shared::{Request, BYTES, SYSCALL};
+    let mut bytes = request.encode();
+    let code = invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
+    if code != 0 {
+        return Err(code);
+    }
+    Request::decode(&bytes).map_err(|_| -5)
+}
+
+pub fn event(
+    operation: u64,
+    id: u64,
+    generation: u64,
+    last_seen: u64,
+    timeout_ms: u64,
+) -> Result<u64, isize> {
+    let code = invoke(
+        crate::protocol::event::SYSCALL,
+        [operation, id, generation, last_seen, timeout_ms],
+    );
+    if code < 0 {
+        Err(code)
+    } else {
+        Ok(code as u64)
     }
 }

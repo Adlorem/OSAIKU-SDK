@@ -5,6 +5,8 @@
 //! Identifiers and decoded handles are claims: the trusted resource owner must
 //! compare them with its live registry before granting access.
 use core::num::NonZeroU64;
+pub mod event;
+pub mod shared;
 
 pub const MAJOR: u16 = 1;
 pub const MINOR: u16 = 0;
