@@ -384,10 +384,12 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
         let radius = u32::from(self.view.decoration(s).radius);
         let clip = self.layout().viewport;
         if !painter.visible(Rect {
-            x: p.bounds.x - 8,
-            y: p.bounds.y - 8,
-            width: p.bounds.width + 16,
-            height: p.bounds.height + 16,
+            // Union of every grow/offset below: bottom reaches +6+4.
+            // A row-band painter must not cull the last two shadow rows.
+            x: p.bounds.x - 6,
+            y: p.bounds.y - 2,
+            width: p.bounds.width + 12,
+            height: p.bounds.height + 12,
         }) {
             return;
         }

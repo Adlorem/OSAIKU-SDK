@@ -80,4 +80,5 @@ pub enum ProcessState {
     BlockedOnIpc = 9,
     BlockedOnReply = 10,
     BlockedOnStorage = 11,
+    BlockedOnGpu = 12,
 }

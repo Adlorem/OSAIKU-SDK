@@ -143,6 +143,14 @@ pub fn rounds(window: Bounds) -> bool {
 }
 
 impl PreparedStyle {
+    /// Coverage used by both renderers. Coordinates are window-local.
+    pub fn gpu_corner_coverage(&self, width:u32,height:u32,x:u32,y:u32)->Option<u8> {
+        if x>=width || y>=height {return None;}
+        let r=self.style.corner_radius;
+        if width<2*r || height<2*r || r==0 {return Some(255);}
+        let x=x.min(width-1-x);let y=y.min(height-1-y);
+        Some(if x<r && y<r {self.corners.coverage[(y*r+x) as usize]} else {255})
+    }
     /// Add the one-pixel outline to private foreground. No backdrop enters this
     /// cache. A size change or style change requires rerasterizing the cache.
     pub fn frame_surface(

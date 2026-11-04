@@ -134,7 +134,9 @@ impl Request {
         if r.sequence == 0
             || r.generation == 0
             || !(1..=11).contains(&r.operation)
-            || r.length > 4096
+            || usize::from(r.length) > if r.operation == request::TRANSFER {
+                crate::controller_io::XHCI_TRANSFER_BYTES
+            } else { 4096 }
         {
             return Err(Error::Range);
         }
@@ -256,7 +258,8 @@ impl Channel {
             .ok_or(Error::Stale)?;
         if !e.dispatched
             || e.reply.is_some()
-            || (e.request.operation != request::PORT && reply.actual > 4096)
+            || (e.request.operation != request::PORT
+                && reply.actual as usize > crate::controller_io::XHCI_TRANSFER_BYTES)
         {
             return Err(Error::Permission);
         }

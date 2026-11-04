@@ -3,6 +3,7 @@
 //! operations. No shell authority, memory mapping or syscall is granted here.
 use crate::{compat::*, lifecycle::*, window::*};
 mod raster;
+mod gpu;
 mod surface;
 pub use raster::{HostedRaster, RasterError};
 

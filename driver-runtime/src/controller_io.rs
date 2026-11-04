@@ -1,7 +1,38 @@
 //! Trusted mediation of one admitted controller. Peers only name offsets in
 //! retained resources. No PCI, IRQ destination or allocator interface exists.
 use crate::{controller as wire, process::Message, protocol::Error};
-pub const DMA_BYTES: u64 = 344064;
+/// Each endpoint owns a separate 16 KiB buffer. Align the slot origin to
+/// 16 KiB so one buffer never crosses an xHCI TRB's 64 KiB boundary.
+pub const XHCI_TRANSFER_BYTES: usize = 16 * 1024;
+pub const XHCI_SLOT_PAGES: u64 = 24; // 6 context/ring, 2 padding, 16 data
+pub const DMA_BYTES: u64 = (4 + 3 + 8 * XHCI_SLOT_PAGES) * 4096;
+pub fn xhci_slot_base(base: u64, slot: u8) -> u64 {
+    ((base + 4 * 4096 + 16383) & !16383) + u64::from(slot - 1) * XHCI_SLOT_PAGES * 4096
+}
+pub fn xhci_buffer(base: u64, slot: u8, buffer: u8) -> u64 {
+    xhci_slot_base(base, slot) + 8 * 4096 + u64::from(buffer) * XHCI_TRANSFER_BYTES as u64
+}
+/// Maximum synchronous copy by the trusted owner, not a process message size.
+pub const OWNER_COPY_BYTES: usize = XHCI_TRANSFER_BYTES;
+/// Bounded process-HCD profile, shared with the trusted allocation planner.
+/// This ceiling does not grant memory; the platform still charges its domain.
+// Preserve the previous 171-scratchpad capability while charging the larger
+// arena in full. This is a ceiling, never permission to map unowned pages.
+pub const XHCI_DMA_PAGE_BUDGET: u64 = 371;
+pub const XHCI_MAX_SCRATCHPADS: u16 = (XHCI_DMA_PAGE_BUDGET - DMA_BYTES / 4096 - 1) as u16;
+const _: () = assert!(XHCI_MAX_SCRATCHPADS as u64 <= 4096 / 8);
+/// HCSPARAMS2 Max Scratchpad Buffers: both five-bit fields, not just the low one.
+pub const fn xhci_scratchpad_count(hcs2: u32) -> u16 {
+    ((((hcs2 >> 21) & 31) << 5) | ((hcs2 >> 27) & 31)) as u16
+}
+pub const fn xhci_scratchpad_array_pages(count: u16) -> u64 {
+    (count as u64 * 8 + 4095) / 4096
+}
+/// Exact requirement, even for counts rejected by the profile's page budget.
+pub const fn xhci_arena_pages(hcs2: u32) -> u64 {
+    let count = xhci_scratchpad_count(hcs2);
+    DMA_BYTES / 4096 + xhci_scratchpad_array_pages(count) + count as u64
+}
 pub trait Platform {
     fn read_register(&mut self, offset: u32) -> Result<u32, Error>;
     fn write_register(&mut self, offset: u32, value: u32) -> Result<(), Error>;
@@ -84,6 +115,48 @@ pub struct Gate<P: Platform> {
     closed: bool,
 }
 impl<P: Platform> Gate<P> {
+    /// Typed kernel-owner access with the same register/arena restrictions.
+    pub fn read_register(&mut self, offset: u32) -> Result<u32, Error> {
+        if self.closed || !self.registers.allows(u64::from(offset), false) { return Err(Error::Permission); }
+        self.platform.read_register(offset)
+    }
+    pub fn write_register(&mut self, offset: u32, value: u32) -> Result<(), Error> {
+        if self.closed || !self.registers.allows(u64::from(offset), true) { return Err(Error::Permission); }
+        self.platform.write_register(offset, value)
+    }
+    pub fn fence(&mut self) -> Result<(), Error> {
+        if self.closed { return Err(Error::Stale); }
+        self.platform.fence()
+    }
+    pub fn now(&mut self) -> u64 { self.platform.now() }
+    pub fn owner_zero(&mut self, address: u64, bytes: usize) -> Result<(), Error> {
+        let offset = self.owner_range(address, bytes)?;
+        if bytes > 4096 { return Err(Error::Range); }
+        self.platform.zero_arena(offset, bytes)
+    }
+    /// Trusted owner only. The caller serializes this borrow against revoke and
+    /// restart. Platform revalidates the live domain on every bounded copy;
+    /// no pointer or reusable authorization is returned to either caller.
+    pub fn owner_read(&mut self, address: u64, bytes: &mut [u8]) -> Result<(), Error> {
+        let offset = self.owner_range(address, bytes.len())?;
+        self.platform.read_arena(offset, bytes)
+    }
+    pub fn owner_write(&mut self, address: u64, bytes: &[u8]) -> Result<(), Error> {
+        let offset = self.owner_range(address, bytes.len())?;
+        self.platform.write_arena(offset, bytes)
+    }
+    fn owner_range(&self, address: u64, length: usize) -> Result<u64, Error> {
+        if self.closed {
+            return Err(Error::Stale);
+        }
+        let offset = address.checked_sub(self.base).ok_or(Error::Range)?;
+        if length == 0 || length > OWNER_COPY_BYTES
+            || offset.checked_add(length as u64).is_none_or(|end| end > self.bytes)
+        {
+            return Err(Error::Range);
+        }
+        Ok(offset)
+    }
     /// Trusted owner supplies only a DRV-11 admitted, enabled domain.
     pub fn new(platform: P, registers: Registers, base: u64, bytes: u64) -> Result<Self, Error> {
         if base == 0

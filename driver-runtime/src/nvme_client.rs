@@ -21,7 +21,37 @@ pub trait Transport {
         input: &[u8],
         output: &mut [u8],
     ) -> Result<(), Error>;
+    /// Several already validated page runs as one GATHER receipt. Transports
+    /// without a gathered request may write the pages one exchange at a time.
+    fn gather(&mut self, generation: u64, runs: &[(u64, &[&[u8; 4096]])]) -> Result<(), Error> {
+        for (lba, pages) in runs {
+            for (i, page) in pages.iter().enumerate() {
+                self.exchange(
+                    generation,
+                    wire::WRITE,
+                    lba + i as u64 * 8,
+                    &page[..],
+                    &mut [],
+                )?;
+            }
+        }
+        Ok(())
+    }
     fn quarantine(&mut self);
+    fn read_runs(
+        &mut self,
+        generation: u64,
+        runs: &[(u64, usize)],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        let mut at = 0;
+        for &(lba, pages) in runs {
+            let n = pages * 4096;
+            self.exchange(generation, wire::READ, lba, &[], &mut out[at..at + n])?;
+            at += n;
+        }
+        Ok(())
+    }
 }
 pub struct Client<T: Transport> {
     transport: T,
@@ -87,21 +117,40 @@ impl<T: Transport> Client<T> {
         {
             self.quarantine();
             return Err(
-                if matches!(operation, wire::WRITE | wire::FLUSH | wire::SHUTDOWN) {
+                if matches!(
+                    operation,
+                    wire::WRITE | wire::WRITE_FUA | wire::FLUSH | wire::SHUTDOWN
+                ) {
                     Error::UnknownCommit
                 } else {
                     error
                 },
             );
         }
+        if operation != wire::SHUTDOWN && !self.live() {
+            self.quarantine();
+            return Err(
+                if matches!(
+                    operation,
+                    wire::WRITE | wire::WRITE_FUA | wire::FLUSH | wire::SHUTDOWN
+                ) {
+                    Error::UnknownCommit
+                } else {
+                    Error::Stale
+                },
+            );
+        }
         Ok(())
     }
+    // Each request fills at most one fixed arena buffer. The driver splits it
+    // into commands no larger than the controller limit and keeps them in
+    // flight together, so a smaller MDTS no longer costs extra round trips.
     pub fn read(&mut self, lba: u64, bytes: &mut [u8]) -> Result<(), Error> {
         self.check(lba, bytes.len())?;
-        for (i, chunk) in bytes.chunks_mut(self.geometry.limit).enumerate() {
+        for (i, chunk) in bytes.chunks_mut(MAX_IO_BYTES).enumerate() {
             self.send(
                 wire::READ,
-                lba + (i * self.geometry.limit / 512) as u64,
+                lba + (i * MAX_IO_BYTES / 512) as u64,
                 &[],
                 chunk,
             )?;
@@ -110,16 +159,87 @@ impl<T: Transport> Client<T> {
     }
     pub fn write(&mut self, lba: u64, bytes: &[u8], durable: bool) -> Result<(), Error> {
         self.check(lba, bytes.len())?;
-        for (i, chunk) in bytes.chunks(self.geometry.limit).enumerate() {
+        for (i, chunk) in bytes.chunks(MAX_IO_BYTES).enumerate() {
             self.send(
-                wire::WRITE,
-                lba + (i * self.geometry.limit / 512) as u64,
+                if durable {
+                    wire::WRITE_FUA
+                } else {
+                    wire::WRITE
+                },
+                lba + (i * MAX_IO_BYTES / 512) as u64,
                 chunk,
                 &mut [],
-            )?;
+            )
+            .map_err(|error| {
+                // Earlier chunks already reached the device. Losing the
+                // owner before the next submission is still a partial write,
+                // never a definite refusal of the whole caller request.
+                if i == 0 {
+                    error
+                } else {
+                    Error::UnknownCommit
+                }
+            })?;
         }
-        if durable {
-            self.flush()?;
+        Ok(())
+    }
+    /// Linux blk-mq style request grouping, preserving the caller's scatter
+    /// order in a bounded arena. Validate the entire list before dispatch.
+    pub fn read_runs(&mut self, runs: &[(u64, usize)], out: &mut [u8]) -> Result<(), Error> {
+        if runs.is_empty() || runs.len() > wire::MAX_SEGMENTS {
+            return Err(Error::InvalidRange);
+        }
+        let mut total = 0usize;
+        for &(lba, pages) in runs {
+            let bytes = pages.checked_mul(4096).ok_or(Error::InvalidRange)?;
+            self.check(lba, bytes)?;
+            total = total.checked_add(bytes).ok_or(Error::InvalidRange)?;
+        }
+        if total > MAX_IO_BYTES || total != out.len() {
+            return Err(Error::InvalidRange);
+        }
+        if let Err(e) = self
+            .transport
+            .read_runs(self.geometry.generation, runs, out)
+        {
+            self.quarantine();
+            return Err(e);
+        }
+        Ok(())
+    }
+    /// Write up to `wire::MAX_SEGMENTS` runs of whole pages, together no
+    /// larger than one arena buffer, as a single request. Every run is
+    /// checked before anything is sent; afterwards any failure is uncertain.
+    pub fn write_runs(&mut self, runs: &[(u64, &[&[u8; 4096]])]) -> Result<(), Error> {
+        if runs.is_empty() || runs.len() > wire::MAX_SEGMENTS {
+            return Err(Error::InvalidRange);
+        }
+        let mut pages = 0;
+        for (lba, run) in runs {
+            pages += run.len();
+            if run.is_empty()
+                || (run.len() as u64)
+                    .checked_mul(8)
+                    .and_then(|n| lba.checked_add(n))
+                    .is_none_or(|end| end > self.geometry.blocks)
+            {
+                return Err(Error::InvalidRange);
+            }
+        }
+        if pages * 4096 > MAX_IO_BYTES {
+            return Err(Error::InvalidRange);
+        }
+        if !self.live() {
+            self.quarantine();
+            return Err(Error::Stale);
+        }
+        if self
+            .transport
+            .gather(self.geometry.generation, runs)
+            .is_err()
+        {
+            self.quarantine();
+            return Err(Error::UnknownCommit);
         }
         Ok(())
     }

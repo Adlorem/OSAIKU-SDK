@@ -93,6 +93,11 @@ fn write_stays_dirty_until_successful_flush_and_receipt_consumption() {
     c.take(id).unwrap();
     assert!(c.idle());
     assert!(!c.clean());
+    let id = c.submit(1, WRITE_FUA, 16, 512, 4096).unwrap();
+    c.fetch();
+    c.complete(Reply { generation: 9, sequence: id, bytes: 512, failed: false }).unwrap();
+    c.take(id).unwrap();
+    assert!(!c.clean(), "FUA must not discharge a preceding ordinary write");
     let id = c.submit(1, FLUSH, 0, 0, 0).unwrap();
     c.fetch();
     c.complete(Reply {
@@ -135,6 +140,7 @@ fn crash_and_failed_completion_never_replay_or_release_an_uncertain_write() {
 }
 struct Hardware {
     memory: Vec<u8>,
+    restart_generation: u64,
 }
 impl Platform for Hardware {
     fn read_register(&mut self, _: u32) -> Result<u32, Error> {
@@ -160,11 +166,15 @@ impl Platform for Hardware {
     fn revoke(&mut self) -> bool {
         false
     }
+    fn restart(&mut self, generation: u64) -> bool {
+        generation == self.restart_generation
+    }
 }
 fn gate(forbidden: [Option<(u32, u32)>; 2]) -> Gate<Hardware> {
     Gate::new(
         Hardware {
             memory: vec![0; DMA_BYTES as usize],
+            restart_generation: 10,
         },
         Registers {
             aperture: 0x4000,
@@ -238,4 +248,18 @@ fn trusted_start_budget_is_bounded_and_not_renewable() {
     assert!(i.admit_controller_start_budget(70_000).is_err());
     assert!(!i.poll(70_099, true));
     assert!(i.poll(70_100, true));
+}
+
+#[test]
+fn restart_requires_closed_gate_and_exact_platform_authority() {
+    let mut g = gate([None, None]);
+    assert_eq!(g.restart(10), Err(Error::State));
+    g.revoke();
+    for generation in [0, 9, 11] {
+        assert_eq!(g.restart(generation), Err(Error::State));
+        assert_eq!(g.exchange(message(CLOCK, 0, 0)), Err(Error::Stale));
+    }
+    assert_eq!(g.restart(10), Ok(()));
+    assert_eq!(g.exchange(message(CLOCK, 0, 0)).unwrap().value, 1234);
+    assert_eq!(g.restart(10), Err(Error::State));
 }

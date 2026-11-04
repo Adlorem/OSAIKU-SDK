@@ -84,12 +84,20 @@ impl<'a> BaseMetadata<'a> {
     }
     pub fn validate_profile(&self) -> Result<(), Error> {
         let has_drivers = self.entries().any(|e| e.role == drivers::ROLE);
-        if self.service_count() != BASE_PROFILE_ROLES.len() + usize::from(has_drivers)
+        let has_gpu_probe = self.entries().any(|e| e.role == 22);
+        if self.service_count()
+            != BASE_PROFILE_ROLES.len() + usize::from(has_drivers) + usize::from(has_gpu_probe)
             || self
                 .entries()
-                .filter(|entry| entry.role != drivers::ROLE)
+                .filter(|entry| entry.role != drivers::ROLE && entry.role != 22)
                 .zip(BASE_PROFILE_ROLES)
                 .any(|(entry, role)| entry.role != role || u64::from(entry.abi) != SERVICE_ABI)
+        {
+            return Err(Error::Compatibility);
+        }
+        if self
+            .entries()
+            .any(|e| e.role == 22 && u64::from(e.abi) != SERVICE_ABI)
         {
             return Err(Error::Compatibility);
         }

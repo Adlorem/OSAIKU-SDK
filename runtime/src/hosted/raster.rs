@@ -17,6 +17,7 @@ struct Scratch {
     metadata: Publication,
     band: [u8; MAX_TRANSFER],
     dirty: DirtyTracker,
+    gpu_commands: [crate::gpu_painter::Command; crate::gpu_painter::COMMAND_CAPACITY],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +48,7 @@ impl HostedRaster {
                 metadata: Publication::EMPTY,
                 band: [0; MAX_TRANSFER],
                 dirty: DirtyTracker::new(),
+                gpu_commands: [crate::gpu_painter::Command::EMPTY; crate::gpu_painter::COMMAND_CAPACITY],
             }),
         }
     }
@@ -115,6 +117,10 @@ impl HostedRaster {
         .with_theme(theme)
         .with_accent(accent)
         .with_images(images);
+        if let Some(handle)=super::gpu::publish(&scene,offer,wire,&mut scratch.metadata,&mut scratch.gpu_commands,&mut exchange,&mut checkpoint)? {
+            scratch.dirty.base=None;
+            return Ok(handle);
+        }
         // Take before modifying fingerprints: every unsuccessful path loses the
         // base. Geometry includes epoch/incarnation, resize, palette and chrome.
         let previous = scratch.dirty.base.take().filter(|b| {

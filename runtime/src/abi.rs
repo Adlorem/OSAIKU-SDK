@@ -50,4 +50,7 @@ pub mod number {
     pub const THREAD_JOIN: u64 = 371;
     pub const THREAD_EXIT: u64 = 372;
     pub const THREAD_SLEEP: u64 = 374;
+    /// Latched notification within the caller's own admitted graphics process.
+    pub const THREAD_EVENT_WAIT: u64 = 402;
+    pub const THREAD_EVENT_NOTIFY: u64 = 403;
 }

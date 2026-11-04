@@ -197,6 +197,13 @@ impl Placement<'_> {
     }
 }
 impl PreparedStyle {
+    /// Device-neutral lookup values for GPU composition; same tables as CPU.
+    pub fn gpu_shadow_step(&self, window: Bounds, x:u32, y:u32) -> u8 {
+        self.shadow_placement(window).step_at(x,y) as u8
+    }
+    pub fn gpu_shadow_channel(&self, channel:usize, step:usize, encoded:u8)->Option<u8> {
+        self.shadow.channels.get(channel)?.get(step)?.get(encoded as usize).copied()
+    }
     pub(crate) fn shadow_placement(&self, window: Bounds) -> Placement<'_> {
         let radius = self.style.corner_radius;
         let rounded = window.width >= radius * 2 && window.height >= radius * 2;

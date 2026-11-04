@@ -163,3 +163,29 @@ pub fn requirements(m: &Manifest<'_>) -> Result<Requirements, Error> {
         reset: u16_at(b, 468),
     })
 }
+/// Assigned by the OS loader from authenticated distribution provenance, never
+/// read from a driver manifest or inferred from its name/publisher alone.
+/// Neither class is a DMA mapping or a waiver of platform admission checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrustClass {
+    System,
+    Installable,
+}
+impl TrustClass {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Installable => "installable",
+        }
+    }
+    /// The current controller transport is reserved for release-owned drivers.
+    /// Installable class drivers use mediated transports; direct assignment
+    /// needs its own qualified platform contract before this can be extended.
+    pub fn admit(self, manifest: &Manifest<'_>) -> Result<(), Error> {
+        let classes = classes(manifest)?;
+        if self == Self::Installable && classes & 4 != 0 {
+            return Err(Error::Policy);
+        }
+        Ok(())
+    }
+}

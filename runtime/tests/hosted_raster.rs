@@ -95,7 +95,21 @@ fn frozen_recipe_batches_uploads_and_guard_refuses_reentry() {
         )
         .unwrap();
     assert_eq!(handle.serial, 7);
-    assert_eq!(*trace.borrow(), [BEGIN_FRAME, 99, UPLOAD, SEAL]);
+    // Streaming dirty detection scans at most 32 rows per band; 129 rows
+    // require five uploads even when the byte transfer cap would allow one.
+    assert_eq!(
+        *trace.borrow(),
+        [
+            BEGIN_FRAME,
+            99,
+            UPLOAD,
+            UPLOAD,
+            UPLOAD,
+            UPLOAD,
+            UPLOAD,
+            SEAL
+        ]
+    );
 }
 
 #[test]
@@ -323,12 +337,12 @@ struct PixelTransport {
 impl PixelTransport {
     fn exchange(&mut self, req: &Request, data: &mut [u8], receipt: &mut Receipt) -> isize {
         self.ops.push(req.operation);
-        if req.operation == BEGIN_DELTA && self.refuse_base {
+        if matches!(req.operation, BEGIN_DELTA | BEGIN_STREAM) && self.refuse_base {
             self.refuse_base = false;
             return SYSCALL_ERR_STALE_ENDPOINT;
         }
         match req.operation {
-            BEGIN_FRAME | BEGIN_DELTA => {
+            BEGIN_FRAME | BEGIN_DELTA | BEGIN_STREAM => {
                 self.candidate = vec![0; req.extent.bytes().unwrap() as usize]
             }
             COPY_BASE => {
@@ -355,7 +369,7 @@ impl PixelTransport {
             _ => panic!("unexpected operation"),
         }
         receipt.handle = req.handle;
-        if matches!(req.operation, BEGIN_FRAME | BEGIN_DELTA) {
+        if matches!(req.operation, BEGIN_FRAME | BEGIN_DELTA | BEGIN_STREAM) {
             receipt.handle.serial = req.handle.revision + 10;
         }
         receipt.epoch = req.handle.target.epoch;
@@ -453,7 +467,7 @@ fn stale_base_falls_back_once_and_failed_delta_discards_fingerprints() {
             || Ok(()),
         )
         .unwrap();
-    assert_eq!(&transport.ops[..2], &[BEGIN_DELTA, BEGIN_FRAME]);
+    assert_eq!(&transport.ops[..2], &[BEGIN_STREAM, BEGIN_FRAME]);
     transport.fail_copy = true;
     let old = transport.published.clone();
     assert!(raster
