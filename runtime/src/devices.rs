@@ -19,6 +19,10 @@ pub mod flag {
     pub const PROTECTED: u64 = 1;
     pub const RESTART: u64 = 2;
     pub const CONFIRMATION: u64 = 4;
+    /// Driver supplied by the signed system release, not the user catalog.
+    pub const SYSTEM: u64 = 8;
+    /// Built into the system; it has no independently installable package.
+    pub const INTEGRATED: u64 = 16;
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
