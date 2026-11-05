@@ -28,11 +28,11 @@ def main():
         root = Path(temporary).resolve()
         if any(root == p or p in root.parents for p in checkouts):
             raise ValueError('TEMP must be outside both checkouts')
-        for name in ('driver-protocol', 'driver-runtime', 'targets', 'examples/usb-mouse'):
+        for name in ('driver-protocol', 'driver-runtime', 'network-protocol', 'targets', 'examples/usb-mouse'):
             shutil.copytree(sdk / name, root / name)
         shutil.copyfile(sdk / 'rust-toolchain.toml', root / 'rust-toolchain.toml')
         (root / 'Cargo.toml').write_text(
-            '[workspace]\nmembers=["driver-protocol","driver-runtime"]\n'
+            '[workspace]\nmembers=["driver-protocol","driver-runtime","network-protocol"]\n'
             'exclude=["examples/usb-mouse"]\nresolver="2"\n'
             '[workspace.package]\nedition="2021"\nversion="0.1.0"\nlicense="MIT"\n')
         env = dict(os.environ, CARGO_NET_OFFLINE='true', CARGO_TARGET_DIR=str(root / 'target'))
@@ -50,7 +50,7 @@ def main():
             if root not in Path(package['manifest_path']).resolve().parents or package['source'] is not None:
                 raise ValueError('Dependency escaped isolated public SDK')
             packages.add(package['name'])
-        if packages != {'example-usb-mouse', 'osaiku-driver-protocol', 'osaiku-driver-runtime'}:
+        if packages != {'example-usb-mouse', 'osaiku-driver-protocol', 'osaiku-driver-runtime', 'osaiku-network-protocol'}:
             raise ValueError('Unexpected package dependency')
         run('cargo', 'build', '--manifest-path', manifest, '--offline', '--locked', '--release',
             '-Zbuild-std=core,compiler_builtins', '-Zbuild-std-features=compiler-builtins-mem',
