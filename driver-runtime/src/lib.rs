@@ -19,12 +19,14 @@ pub mod class;
 pub mod controller;
 #[forbid(unsafe_code)]
 pub mod controller_io;
+pub mod direct;
 #[forbid(unsafe_code)]
 pub mod hid;
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
 pub mod native;
 #[forbid(unsafe_code)]
 pub mod network;
+pub mod network_channel;
 pub mod network_client;
 pub mod network_driver;
 pub mod network_ring;

@@ -12,6 +12,28 @@ fn invoke(number: u64, args: [u64; 5]) -> isize {
     }
     result as isize
 }
+pub fn direct(
+    message: &crate::protocol::direct::Message,
+) -> Result<crate::protocol::direct::Message, isize> {
+    use crate::protocol::direct::{Message, BYTES, SYSCALL};
+    let mut bytes = message.encode();
+    let code = invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
+    if code != 0 {
+        return Err(code);
+    }
+    Message::decode(&bytes).map_err(|_| -5)
+}
+pub fn network_channel(
+    w: crate::network_channel::Wire,
+) -> Result<crate::network_channel::Wire, isize> {
+    use crate::network_channel::{Wire, BYTES, SYSCALL};
+    let mut bytes = w.encode();
+    let code = invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
+    if code != 0 {
+        return Err(code);
+    }
+    Wire::decode(&bytes).map_err(|_| -5)
+}
 pub fn identity() -> Result<Message, isize> {
     let mut bytes = [0; BYTES];
     let code = invoke(SYSCALL, [2, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
@@ -31,6 +53,14 @@ pub fn exchange(message: &Message) -> Result<Message, isize> {
 /// Event-driven wait with a bounded deadline; unsolicited messages confer no authority.
 pub fn wait() {
     wait_for(100_000);
+}
+pub fn clock_millis() -> Result<u64, isize> {
+    let code = invoke(380, [0; 5]);
+    if code < 0 {
+        Err(code)
+    } else {
+        Ok(code as u64)
+    }
 }
 /// Microsecond deadline, bounded by the owner's heartbeat window.
 pub fn wait_for(microseconds: u64) {

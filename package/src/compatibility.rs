@@ -22,6 +22,8 @@ pub mod protocol {
     pub const SYSTEM_METRICS: u32 = 5;
     pub const PACKAGE_CATALOG: u32 = 6;
     pub const PRIVATE_DATA: u32 = 7;
+    pub const DIRECT_DEVICE: u32 = 8;
+    pub const NETWORK_CHANNEL: u32 = 9;
 }
 
 /// Additional features beyond the native x86-64 baseline. The host advertises
