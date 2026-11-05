@@ -126,6 +126,7 @@ name = "osaiku-driver-runtime"
 version = "0.1.0"
 dependencies = [
  "osaiku-driver-protocol",
+ "osaiku-network-protocol",
 ]
 
 [[package]]
@@ -134,6 +135,10 @@ version = "0.1.0"
 dependencies = [
  "osaiku-runtime",
 ]
+
+[[package]]
+name = "osaiku-network-protocol"
+version = "0.1.0"
 
 [[package]]
 name = "osaiku-package"
@@ -155,6 +160,7 @@ dependencies = [
 name = "osaiku-runtime"
 version = "0.2.0"
 dependencies = [
+ "osaiku-network-protocol",
  "osaiku-package",
  "osaiku-ui",
  "sha2",

@@ -41,6 +41,17 @@ pub fn network_channel(
     }
     Wire::decode(&bytes).map_err(|_| -5)
 }
+pub fn network_service(
+    message: &osaiku_network_protocol::Message,
+) -> Result<osaiku_network_protocol::Message, i64> {
+    use osaiku_network_protocol::{Message, BYTES, SYSCALL};
+    let mut bytes = message.encode();
+    let code = invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
+    if code != 0 {
+        return Err(code as i64);
+    }
+    Message::decode(&bytes)
+}
 pub fn identity() -> Result<Message, isize> {
     let mut bytes = [0; BYTES];
     let code = invoke(SYSCALL, [2, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
