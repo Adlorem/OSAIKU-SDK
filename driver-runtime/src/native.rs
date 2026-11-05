@@ -2,7 +2,14 @@
 //! Only compiled for the freestanding x86_64 target.
 use crate::process::{Message, BYTES, SYSCALL};
 use core::arch::asm;
+use core::sync::atomic::{AtomicU64, Ordering};
+static CALLS: AtomicU64 = AtomicU64::new(0);
+/// Cumulative calls through this process runtime, including waits and logging.
+pub fn syscall_count() -> u64 {
+    CALLS.load(Ordering::Relaxed)
+}
 fn invoke(number: u64, args: [u64; 5]) -> isize {
+    CALLS.fetch_add(1, Ordering::Relaxed);
     let result: u64;
     // All pointers are private, live borrows owned by the wrappers below.
     // No nomem flag: a trap copies data and may reschedule before returning.

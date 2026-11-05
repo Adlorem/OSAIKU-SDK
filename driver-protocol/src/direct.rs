@@ -27,6 +27,9 @@ pub mod op {
     pub const HEARTBEAT: u64 = 12;
     pub const MEDIATED_RESULT: u64 = 13;
     pub const RESET: u64 = 14;
+    /// Read-only standard vendor capability descriptors for this assignment.
+    /// Cursor counts descriptors; no arbitrary config offset or write exists.
+    pub const PCI_CAPABILITY: u64 = 15;
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Handle {
@@ -102,7 +105,7 @@ impl Message {
         if b[96..DATA].iter().any(|b| *b != 0) {
             return Err(Error::Reserved);
         }
-        if !(op::INVENTORY..=op::RESET).contains(&n(1)) {
+        if !(op::INVENTORY..=op::PCI_CAPABILITY).contains(&n(1)) {
             return Err(Error::Kind);
         }
         let mut m = Self::new(n(1));

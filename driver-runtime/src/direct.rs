@@ -50,8 +50,7 @@ impl HardwareMapping {
         let end = offset.checked_add(width).ok_or(Error::Range)?;
         if offset % width != 0
             || !self.profile.regions[..self.profile.count].iter().any(|r| {
-                r.bar == 0
-                    && r.kind == PageKind::Mediated
+                r.kind == PageKind::Mediated
                     && offset >= u64::from(r.first) * PAGE
                     && r.end().is_ok_and(|e| end <= e * PAGE)
             })
@@ -177,8 +176,7 @@ impl DirectDevice {
         let end = offset.checked_add(width).ok_or(Error::Range)?;
         if offset % width != 0
             || !self.profile.regions[..self.profile.count].iter().any(|r| {
-                r.bar == 0
-                    && r.kind == PageKind::Direct
+                r.kind == PageKind::Direct
                     && offset >= u64::from(r.first) * PAGE
                     && r.end().is_ok_and(|e| end <= e * PAGE)
             })
@@ -192,6 +190,34 @@ impl DirectDevice {
         let value = unsafe { core::ptr::read_volatile(address as *const u32) };
         fence(Ordering::Acquire);
         Ok(u32::from_le(value))
+    }
+    pub fn read8(&self, offset: u64) -> Result<u8, Error> {
+        let at = self.register(offset, 1)?;
+        let value = unsafe { core::ptr::read_volatile(at as *const u8) };
+        fence(Ordering::Acquire);
+        Ok(value)
+    }
+    pub fn read16(&self, offset: u64) -> Result<u16, Error> {
+        let at = self.register(offset, 2)?;
+        let value = unsafe { core::ptr::read_volatile(at as *const u16) };
+        fence(Ordering::Acquire);
+        Ok(u16::from_le(value))
+    }
+    pub fn write8(&mut self, offset: u64, value: u8) -> Result<(), Error> {
+        let at = self.register(offset, 1)?;
+        fence(Ordering::SeqCst);
+        unsafe {
+            core::ptr::write_volatile(at as *mut u8, value);
+        }
+        Ok(())
+    }
+    pub fn write16(&mut self, offset: u64, value: u16) -> Result<(), Error> {
+        let at = self.register(offset, 2)?;
+        fence(Ordering::SeqCst);
+        unsafe {
+            core::ptr::write_volatile(at as *mut u16, value.to_le());
+        }
+        Ok(())
     }
     pub fn write32(&mut self, offset: u64, value: u32) -> Result<(), Error> {
         let address = self.register(offset, 4)?;
@@ -283,26 +309,46 @@ impl DirectDevice {
         Ok(m)
     }
     pub fn copy_rx(&self, page: u64, output: &mut [u8]) -> Result<(), Error> {
+        self.read_rx_at(page, 0, output)
+    }
+    pub fn read_rx_at(&self, page: u64, offset: usize, output: &mut [u8]) -> Result<(), Error> {
         self.dma_iova(page)?;
-        if page == 0 || page > (self.profile.dma_pages - 1) / 2 || output.len() > PAGE as usize {
+        if page == 0
+            || page > (self.profile.dma_pages - 1) / 2
+            || offset
+                .checked_add(output.len())
+                .is_none_or(|end| end > PAGE as usize)
+        {
             return Err(Error::Range);
         }
         fence(Ordering::Acquire);
         for (i, byte) in output.iter_mut().enumerate() {
             *byte = unsafe {
-                core::ptr::read_volatile((DMA_START + page * PAGE + i as u64) as *const u8)
+                core::ptr::read_volatile(
+                    (DMA_START + page * PAGE + (offset + i) as u64) as *const u8,
+                )
             };
         }
         Ok(())
     }
     pub fn copy_tx(&mut self, page: u64, input: &[u8]) -> Result<(), Error> {
+        self.write_tx_at(page, 0, input)
+    }
+    pub fn write_tx_at(&mut self, page: u64, offset: usize, input: &[u8]) -> Result<(), Error> {
         self.dma_iova(page)?;
-        if page <= (self.profile.dma_pages - 1) / 2 || input.len() > PAGE as usize {
+        if page <= (self.profile.dma_pages - 1) / 2
+            || offset
+                .checked_add(input.len())
+                .is_none_or(|end| end > PAGE as usize)
+        {
             return Err(Error::Range);
         }
         for (i, byte) in input.iter().enumerate() {
             unsafe {
-                core::ptr::write_volatile((DMA_START + page * PAGE + i as u64) as *mut u8, *byte);
+                core::ptr::write_volatile(
+                    (DMA_START + page * PAGE + (offset + i) as u64) as *mut u8,
+                    *byte,
+                );
             }
         }
         fence(Ordering::Release);

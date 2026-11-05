@@ -29,6 +29,10 @@ pub struct Driver<D: Device, const N: usize> {
     errors: u8,
 }
 impl<D: Device, const N: usize> Driver<D, N> {
+    /// Access backend health/link state without changing class-slot ownership.
+    pub fn device_mut(&mut self) -> &mut D {
+        &mut self.device
+    }
     /// Rings are prepared under the same trusted geometry as the device arena.
     pub fn new(
         device: D,
