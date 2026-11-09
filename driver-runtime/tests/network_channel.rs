@@ -81,7 +81,20 @@ fn wire_rejects_reserved_bytes_unknown_operations_and_generation_overflow() {
         ..Wire::new(op::OPEN)
     };
     assert_eq!(Wire::decode(&w.encode()), Ok(w));
-    for at in 75..BYTES {
+    // Byte 75 now identifies Ethernet (0) or Wi-Fi (1); padding starts at 76.
+    for medium in [0, 1] {
+        let receipt = Wire { medium, ..w };
+        assert_eq!(receipt.encode()[75], medium);
+        assert_eq!(Wire::decode(&receipt.encode()), Ok(receipt));
+    }
+    for at in [74, 75] {
+        for value in [2, 255] {
+            let mut b = w.encode();
+            b[at] = value;
+            assert_eq!(Wire::decode(&b), Err(Error::Reserved));
+        }
+    }
+    for at in 76..BYTES {
         let mut b = w.encode();
         b[at] = 1;
         assert_eq!(Wire::decode(&b), Err(Error::Reserved));

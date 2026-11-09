@@ -29,6 +29,8 @@ pub struct Wire {
     pub mtu: u32,
     pub mac: [u8; 6],
     pub up: bool,
+    /// 0 Ethernet, 1 Wi-Fi; assigned from the native DirectDevice profile.
+    pub medium: u8,
 }
 impl Wire {
     pub const fn new(operation: u64) -> Self {
@@ -43,6 +45,7 @@ impl Wire {
             mtu: 1500,
             mac: [0; 6],
             up: false,
+            medium: 0,
         }
     }
     pub fn encode(self) -> [u8; BYTES] {
@@ -65,13 +68,14 @@ impl Wire {
         b[64..68].copy_from_slice(&self.mtu.to_le_bytes());
         b[68..74].copy_from_slice(&self.mac);
         b[74] = self.up as u8;
+        b[75] = self.medium;
         b
     }
     pub fn decode(b: &[u8; BYTES]) -> Result<Self, Error> {
         if &b[..8] != b"OL2CHAN1" {
             return Err(Error::Version);
         }
-        if b[74] > 1 || b[75..].iter().any(|n| *n != 0) {
+        if b[74] > 1 || b[75]>1 || b[76..].iter().any(|n| *n != 0) {
             return Err(Error::Reserved);
         }
         let n = |i: usize| u64::from_le_bytes(b[8 + i * 8..16 + i * 8].try_into().unwrap());
@@ -89,6 +93,7 @@ impl Wire {
             mtu: u32::from_le_bytes(b[64..68].try_into().unwrap()),
             mac: b[68..74].try_into().unwrap(),
             up: b[74] != 0,
+            medium: b[75],
         })
     }
     pub fn geometry(self) -> Result<Geometry, Error> {

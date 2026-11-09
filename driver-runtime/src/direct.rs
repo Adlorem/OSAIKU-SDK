@@ -23,6 +23,9 @@ pub struct HardwareMapping {
     handle: Handle,
     profile: Profile,
     base: u64,
+    dma: u64,
+    copy: u64,
+    iova: u64,
 }
 impl HardwareMapping {
     /// # Safety
@@ -37,14 +40,104 @@ impl HardwareMapping {
         {
             return Err(Error::Range);
         }
+        let profile = Profile::decode(&receipt.data)?;
+        let slot = (receipt.offset - MMIO_START) / 0x100000;
+        if profile.service_dma && slot >= DMA_WINDOW_BYTES / SERVICE_SLOT_BYTES {
+            return Err(Error::Range);
+        }
+        if profile.service_dma
+            && (receipt.sequence != 0 || receipt.endpoint != 0)
+            && (receipt.sequence != DMA_START + slot * SERVICE_SLOT_BYTES
+                || receipt.endpoint != receipt.sequence + SERVICE_COPY_OFFSET
+                || receipt.length == 0
+                || receipt.length & (PAGE - 1) != 0
+                || receipt
+                    .length
+                    .checked_add(profile.dma_pages * PAGE)
+                    .is_none())
+        {
+            return Err(Error::Range);
+        }
+        if !profile.service_dma && (receipt.sequence != 0 || receipt.endpoint != 0) {
+            return Err(Error::Reserved);
+        }
         Ok(Self {
             handle: receipt.handle,
-            profile: Profile::decode(&receipt.data)?,
+            profile,
             base: receipt.offset,
+            dma: receipt.sequence,
+            copy: receipt.endpoint,
+            iova: receipt.length,
         })
     }
     pub fn handle(&self) -> Handle {
         self.handle
+    }
+    pub fn dma_bytes(&self) -> u64 { self.profile.dma_pages * PAGE }
+    fn bytes(&self, dma: bool, offset: usize, bytes: usize) -> Result<u64, Error> {
+        let base = if dma { self.dma } else { self.copy };
+        let limit = if dma {
+            self.profile.dma_pages
+        } else {
+            COPY_PAGES
+        } * PAGE;
+        if !self.profile.service_dma
+            || base == 0
+            || offset
+                .checked_add(bytes)
+                .is_none_or(|end| end as u64 > limit)
+        {
+            return Err(Error::Permission);
+        }
+        Ok(base + offset as u64)
+    }
+    pub fn read_dma(&self, offset: usize, out: &mut [u8]) -> Result<(), Error> {
+        let at = self.bytes(true, offset, out.len())?;
+        fence(Ordering::Acquire);
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = unsafe { core::ptr::read_volatile((at + i as u64) as *const u8) };
+        }
+        Ok(())
+    }
+    pub fn write_dma(&mut self, offset: usize, data: &[u8]) -> Result<(), Error> {
+        let at = self.bytes(true, offset, data.len())?;
+        for (i, b) in data.iter().enumerate() {
+            unsafe { core::ptr::write_volatile((at + i as u64) as *mut u8, *b) };
+        }
+        fence(Ordering::Release);
+        Ok(())
+    }
+    pub fn dma_iova(&self, page: u64) -> Result<u64, Error> {
+        self.bytes(
+            true,
+            usize::try_from(page.checked_mul(PAGE).ok_or(Error::Range)?)
+                .map_err(|_| Error::Range)?,
+            PAGE as usize,
+        )?;
+        self.iova.checked_add(page * PAGE).ok_or(Error::Range)
+    }
+    /// Copy one untrusted TX frame into private service memory before parsing.
+    pub fn read_copy_tx(&self, out: &mut [u8]) -> Result<(), Error> {
+        if !(14..=1518).contains(&out.len()) {
+            return Err(Error::Range);
+        }
+        let at = self.bytes(false, 0, out.len())?;
+        fence(Ordering::Acquire);
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = unsafe { core::ptr::read_volatile((at + i as u64) as *const u8) };
+        }
+        Ok(())
+    }
+    pub fn write_copy_rx(&mut self, data: &[u8]) -> Result<(), Error> {
+        if !(14..=1518).contains(&data.len()) {
+            return Err(Error::Range);
+        }
+        let at = self.bytes(false, PAGE as usize, data.len())?;
+        for (i, b) in data.iter().enumerate() {
+            unsafe { core::ptr::write_volatile((at + i as u64) as *mut u8, *b) };
+        }
+        fence(Ordering::Release);
+        Ok(())
     }
     fn address(&self, offset: u64, width: u64) -> Result<u64, Error> {
         let end = offset.checked_add(width).ok_or(Error::Range)?;
@@ -81,13 +174,15 @@ impl HardwareMapping {
         Ok(value)
     }
     pub fn write(&mut self, offset: u64, width: u64, value: u64) -> Result<(), Error> {
-        if !matches!(width, 4 | 8) || (width == 4 && value > u32::MAX as u64) {
+        if !matches!(width, 1 | 4 | 8) || (width == 1 && value > u8::MAX as u64) || (width == 4 && value > u32::MAX as u64) {
             return Err(Error::Size);
         }
         let at = self.address(offset, width)?;
         fence(Ordering::SeqCst);
         unsafe {
-            if width == 4 {
+            if width == 1 {
+                core::ptr::write_volatile(at as *mut u8, value as u8);
+            } else if width == 4 {
                 core::ptr::write_volatile(at as *mut u32, (value as u32).to_le());
             } else {
                 core::ptr::write_volatile(at as *mut u64, value.to_le());
@@ -115,7 +210,12 @@ impl DirectDevice {
         if receipt.handle != identity.handle
             || receipt.offset != MMIO_START
             || receipt.value != DMA_START
-            || receipt.length != profile.dma_pages * PAGE
+            || receipt.length
+                != if profile.service_dma {
+                    COPY_PAGES * PAGE
+                } else {
+                    profile.dma_pages * PAGE
+                }
             || receipt.sequence == 0
         {
             let mut revoke = Message::new(op::REVOKE);
@@ -124,7 +224,12 @@ impl DirectDevice {
             return Err(Error::State);
         }
         let iova = u64::from_le_bytes(receipt.data[..8].try_into().unwrap());
-        if iova == 0 || iova & (PAGE - 1) != 0 || iova.checked_add(receipt.length).is_none() {
+        if (profile.service_dma && iova != 0)
+            || (!profile.service_dma
+                && (iova == 0
+                    || iova & (PAGE - 1) != 0
+                    || iova.checked_add(receipt.length).is_none()))
+        {
             let mut revoke = Message::new(op::REVOKE);
             revoke.handle = identity.handle;
             let _ = exchange(&revoke);
@@ -244,6 +349,9 @@ impl DirectDevice {
     /// Page zero holds device descriptors (R/W DMA). Remaining pages are split
     /// into RX (device Write) and TX (device Read). L2 queue metadata is separate.
     pub fn dma_iova(&self, page: u64) -> Result<DmaAddress, Error> {
+        if self.profile.service_dma {
+            return Err(Error::Permission);
+        }
         if self.closed || !self.mapped {
             return Err(Error::Stale);
         }
@@ -310,6 +418,32 @@ impl DirectDevice {
     }
     pub fn copy_rx(&self, page: u64, output: &mut [u8]) -> Result<(), Error> {
         self.read_rx_at(page, 0, output)
+    }
+    pub fn copy_frame_tx(&mut self, data: &[u8]) -> Result<(), Error> {
+        if self.closed || !self.mapped {
+            return Err(Error::Stale);
+        }
+        if !self.profile.service_dma || !(14..=1518).contains(&data.len()) {
+            return Err(Error::Permission);
+        }
+        for (i, b) in data.iter().enumerate() {
+            unsafe { core::ptr::write_volatile((DMA_START + i as u64) as *mut u8, *b) };
+        }
+        fence(Ordering::Release);
+        Ok(())
+    }
+    pub fn copy_frame_rx(&self, out: &mut [u8]) -> Result<(), Error> {
+        if self.closed || !self.mapped {
+            return Err(Error::Stale);
+        }
+        if !self.profile.service_dma || !(14..=1518).contains(&out.len()) {
+            return Err(Error::Permission);
+        }
+        fence(Ordering::Acquire);
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = unsafe { core::ptr::read_volatile((DMA_START + PAGE + i as u64) as *const u8) };
+        }
+        Ok(())
     }
     pub fn read_rx_at(&self, page: u64, offset: usize, output: &mut [u8]) -> Result<(), Error> {
         self.dma_iova(page)?;

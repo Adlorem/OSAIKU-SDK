@@ -4,6 +4,7 @@ pub const SYSCALL: u64 = 408;
 pub const BYTES: usize = 1152;
 pub const PAYLOAD: usize = 1024;
 pub const MAGIC: u64 = 0x3154454e4941534f;
+pub mod control;
 pub mod op {
     pub const CONFIGURE: u64 = 1;
     pub const GRANT: u64 = 2;
@@ -21,6 +22,17 @@ pub mod op {
     pub const CONFIGURATION: u64 = 22;
     pub const VALIDATE: u64 = 23;
     pub const LINK_STATE: u64 = 24;
+    pub const OVERVIEW: u64 = 30;
+    pub const PUBLISH_STATE: u64 = 31;
+    pub const CONTROL: u64 = 32;
+    pub const POLICY_TAKE: u64 = 33;
+    pub const POLICY_DECIDE: u64 = 34;
+    pub const CONTROL_POLL: u64 = 35;
+    pub const OUTBOUND_REQUEST: u64 = 36;
+    pub const OUTBOUND_ROW: u64 = 37;
+    pub const OUTBOUND_DECIDE: u64 = 38;
+    pub const OUTBOUND_RESULT: u64 = 39;
+    pub const OUTBOUND_REVOKE: u64 = 40;
 }
 pub mod kind {
     pub const UDP: u64 = 1;
@@ -123,7 +135,7 @@ impl Message {
             || n(1) != 1
             || n(15) != 0
             || n(13) > PAYLOAD as u64
-            || !matches!(n(2),1..=11|20..=24)
+            || !matches!(n(2),1..=11|20..=24|30..=40)
         {
             return Err(error::INVALID);
         }

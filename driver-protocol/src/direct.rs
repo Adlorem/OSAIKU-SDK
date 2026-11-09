@@ -5,13 +5,50 @@ pub const SYSCALL: u64 = 406;
 pub const MAJOR: u64 = 2;
 pub const BYTES: usize = 512;
 pub const DATA: usize = 128;
-pub const MAX_PAGES: u64 = 256;
+pub const LEGACY_MAX_PAGES: u64 = 256;
+/// Larger arenas require the trusted service-DMA profile; ordinary direct
+/// clients retain their original one-MiB ceiling.
+pub const MAX_PAGES: u64 = 1024;
 pub const MAX_REGIONS: usize = 16;
 pub const MAX_BATCH: usize = 16;
 pub const PAGE: u64 = 4096;
 pub const MMIO_START: u64 = 0xa100_0000;
 pub const DMA_START: u64 = 0xa200_0000;
 pub const WINDOW_BYTES: u64 = 16 * 1024 * 1024;
+pub const DMA_WINDOW_BYTES: u64 = 64 * 1024 * 1024;
+pub const COPY_PAGES: u64 = 2;
+pub const SERVICE_SLOT_BYTES: u64 = 8 * 1024 * 1024;
+pub const SERVICE_COPY_OFFSET: u64 = MAX_PAGES * PAGE;
+const _: () = assert!(MMIO_START + WINDOW_BYTES == DMA_START);
+const _: () = assert!(SERVICE_COPY_OFFSET + COPY_PAGES * PAGE <= SERVICE_SLOT_BYTES);
+const _: () = assert!(8 * SERVICE_SLOT_BYTES == DMA_WINDOW_BYTES);
+
+/// Device access layout, independent of register protocol. Page zero is RW;
+/// the next pages are device-write-only, the tail device-read-only.
+pub const fn device_read_start(pages: u64) -> u64 {
+    (pages / 2 + pages % 2) * PAGE
+}
+/// A page-aligned bidirectional subrange in the device-read tail. This value
+/// describes layout only; only the authenticated service-DMA owner may submit
+/// it during initial SERVICE_COMPLETE, before publication/BME. It is not an
+/// address grant and cannot cover another lease, MMIO or client copy buffers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CoherentRange { first: u64, end: u64 }
+impl CoherentRange {
+    pub fn decode(pages: u64, offset: u64, length: u64) -> Result<Option<Self>, Error> {
+        if !(3..=MAX_PAGES).contains(&pages) { return Err(Error::Range); }
+        if offset == 0 && length == 0 { return Ok(None); }
+        let end = offset.checked_add(length).ok_or(Error::Range)?;
+        if length == 0 || offset % PAGE != 0 || length % PAGE != 0
+            || offset < device_read_start(pages) || end > pages * PAGE {
+            return Err(Error::Range);
+        }
+        Ok(Some(Self { first: offset / PAGE, end: end / PAGE }))
+    }
+    pub fn contains(self, page: u64) -> bool { page >= self.first && page < self.end }
+    pub fn first_page(self) -> u64 { self.first }
+    pub fn pages(self) -> u64 { self.end - self.first }
+}
 pub mod op {
     pub const INVENTORY: u64 = 1;
     pub const ASSIGN: u64 = 2;
@@ -30,6 +67,40 @@ pub mod op {
     /// Read-only standard vendor capability descriptors for this assignment.
     /// Cursor counts descriptors; no arbitrary config offset or write exists.
     pub const PCI_CAPABILITY: u64 = 15;
+    /// Trusted service only: bounded family initialization/reset transaction.
+    pub const SERVICE_BEGIN: u64 = 16;
+    /// value=0 completes; value=1 aborts. Successful initial service-DMA
+    /// completion may supply offset/length of one CoherentRange. 0/0 retains
+    /// the directional layout. Recovery cannot change an existing layout.
+    pub const SERVICE_COMPLETE: u64 = 17;
+    pub const SERVICE_CHECK: u64 = 18;
+    /// Session-bound read of one aligned dword in standard device-specific
+    /// configuration (0x40..=0xfc). Trusted service only; no PCI writes.
+    pub const SERVICE_CONFIG_READ: u64 = 19;
+    pub const SERVICE_START: u64 = 20;
+    /// Trusted backend observation only; never grants DMA/reset authority.
+    pub const SERVICE_DIAGNOSTIC: u64 = 21;
+    /// Read-only policy/resource preflight. value bit 0: candidate qualified;
+    /// bit 1: this exact Bound lease has client mappings ready for SERVICE_BEGIN.
+    /// bit 2 alone: revoked Wi-Fi lease has an observed discrete function-FLR
+    /// recovery scope. RESET still requires a new explicit policy operation,
+    /// retired aliases/client/IRQ and a native reset completion receipt.
+    /// bit 3 alone: CNVi recovery candidate; PLDR_SCOPE must still qualify
+    /// ACPI/BT dependencies and an independent ME DMA requester before ME_OPEN.
+    /// bit 4 alone: retired Wi-Fi lease qualifies for CSR-only ordinary MAC
+    /// restart through SERVICE_BEGIN; no DMA or PLDR authority is implied.
+    pub const ADMISSION: u64 = 22;
+    /// Trusted hardware_manager only. ME has its own requester, arena and epoch.
+    pub const ME_OPEN: u64 = 23;
+    pub const ME_CHECK: u64 = 24;
+    pub const ME_CLOSE: u64 = 25;
+    /// Asynchronous native ACPI reset-scope query, execution and completion.
+    pub const PLDR_SCOPE: u64 = 26;
+    pub const PLDR_BEGIN: u64 = 27;
+    pub const PLDR_STATUS: u64 = 28;
+    /// Bounded HECI PIO, with no raw BAR mapping in userspace.
+    pub const ME_READ: u64 = 29;
+    pub const ME_WRITE: u64 = 30;
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Handle {
@@ -105,7 +176,7 @@ impl Message {
         if b[96..DATA].iter().any(|b| *b != 0) {
             return Err(Error::Reserved);
         }
-        if !(op::INVENTORY..=op::PCI_CAPABILITY).contains(&n(1)) {
+        if !(op::INVENTORY..=op::ME_WRITE).contains(&n(1)) || n(1) == 5 {
             return Err(Error::Kind);
         }
         let mut m = Self::new(n(1));
@@ -164,6 +235,16 @@ pub struct Profile {
     pub dma_pages: u64,
     pub irq_per_second: u32,
     pub irq_burst: u32,
+    /// Family initialization gates DMA publication and START. Every MMIO page
+    /// must be mediated; only the authenticated service may complete the gate.
+    pub service_lifecycle: bool,
+    /// Only the authenticated service maps DMA. Client maps COPY_PAGES of
+    /// ordinary CPU-only memory, receives no IOVA and cannot START hardware.
+    pub service_dma: bool,
+    /// Bind START and continued DMA to the kernel Wi-Fi policy session.
+    pub wifi_policy: bool,
+    /// This register transport implements MSI only; never silently choose MSI-X.
+    pub msi_only: bool,
 }
 impl Profile {
     pub const EMPTY: Self = Self {
@@ -172,12 +253,20 @@ impl Profile {
         dma_pages: 0,
         irq_per_second: 0,
         irq_burst: 0,
+        service_lifecycle: false,
+        service_dma: false,
+        wifi_policy: false,
+        msi_only: false,
     };
     pub fn validate(&self) -> Result<(), Error> {
+        if self.service_dma && !self.service_lifecycle || self.wifi_policy && !self.service_dma {
+            return Err(Error::Permission);
+        }
         if self.count == 0
             || self.count > MAX_REGIONS
             || self.dma_pages == 0
             || self.dma_pages > MAX_PAGES
+            || (!self.service_dma && self.dma_pages > LEGACY_MAX_PAGES)
             || self.irq_per_second == 0
             || self.irq_per_second > 100_000
             || self.irq_burst == 0
@@ -186,6 +275,9 @@ impl Profile {
             return Err(Error::Range);
         }
         for (i, r) in self.regions[..self.count].iter().enumerate() {
+            if self.service_lifecycle && r.kind == PageKind::Direct {
+                return Err(Error::Permission);
+            }
             let end = r.end()?;
             if end * PAGE > WINDOW_BYTES {
                 return Err(Error::Range);
@@ -214,6 +306,10 @@ impl Profile {
         b[8..12].copy_from_slice(&self.irq_per_second.to_le_bytes());
         b[12..16].copy_from_slice(&self.irq_burst.to_le_bytes());
         b[16..24].copy_from_slice(&(self.count as u64).to_le_bytes());
+        b[24] = u8::from(self.service_lifecycle);
+        b[25] = u8::from(self.service_dma);
+        b[26] = u8::from(self.wifi_policy);
+        b[27] = u8::from(self.msi_only);
         for (i, r) in self.regions[..self.count].iter().enumerate() {
             let at = 32 + 16 * i;
             b[at] = r.bar;
@@ -233,7 +329,14 @@ impl Profile {
         if p.count > MAX_REGIONS {
             return Err(Error::Range);
         }
-        if b[24..32]
+        if b[24] > 1 || b[25] > 1 || b[26] > 1 || b[27] > 1 {
+            return Err(Error::Reserved);
+        }
+        p.service_lifecycle = b[24] == 1;
+        p.service_dma = b[25] == 1;
+        p.wifi_policy = b[26] == 1;
+        p.msi_only = b[27] == 1;
+        if b[28..32]
             .iter()
             .chain(&b[32 + p.count * 16..])
             .any(|v| *v != 0)

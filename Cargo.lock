@@ -127,6 +127,16 @@ version = "0.1.0"
 dependencies = [
  "osaiku-driver-protocol",
  "osaiku-network-protocol",
+ "osaiku-wifi-protocol",
+ "zeroize",
+]
+
+[[package]]
+name = "osaiku-firmware"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "sha2",
 ]
 
 [[package]]
@@ -163,7 +173,9 @@ dependencies = [
  "osaiku-network-protocol",
  "osaiku-package",
  "osaiku-ui",
+ "osaiku-wifi-protocol",
  "sha2",
+ "zeroize",
 ]
 
 [[package]]
@@ -175,6 +187,13 @@ name = "osaiku-ui-hello"
 version = "0.1.0"
 dependencies = [
  "osaiku-ui",
+]
+
+[[package]]
+name = "osaiku-wifi-protocol"
+version = "0.1.0"
+dependencies = [
+ "zeroize",
 ]
 
 [[package]]

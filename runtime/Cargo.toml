@@ -6,6 +6,8 @@ license.workspace = true
 description = "Experimental no_std native OSAIKU syscall and process contracts"
 
 [dependencies]
+osaiku-wifi-protocol = { path = "../wifi-protocol" }
+zeroize = { version = "=1.8.2", default-features = false }
 osaiku-network-protocol = { path = "../network-protocol" }
 osaiku-package = { path = "../package", default-features = false }
 osaiku-ui = { path = "../ui", default-features = false }

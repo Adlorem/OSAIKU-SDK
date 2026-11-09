@@ -7,6 +7,7 @@
 use core::num::NonZeroU64;
 pub mod direct;
 pub mod event;
+pub mod network_diagnostic;
 pub mod shared;
 
 pub const MAJOR: u16 = 1;

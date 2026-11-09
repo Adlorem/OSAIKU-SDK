@@ -60,6 +60,14 @@ pub fn identity() -> Result<Message, isize> {
     }
     Message::decode(&bytes).map_err(|_| -5)
 }
+pub fn wifi(message: &osaiku_wifi_protocol::Message) -> Result<osaiku_wifi_protocol::Message,i64> {
+    use osaiku_wifi_protocol::{Message,BYTES,SYSCALL};
+    use zeroize::Zeroize;
+    let mut bytes=message.encode();
+    let code=invoke(SYSCALL,[0,bytes.as_mut_ptr() as u64,BYTES as u64,0,0]);
+    let result=if code==0{Message::decode(&bytes)}else{Err(code as i64)};
+    bytes.zeroize();result
+}
 pub fn exchange(message: &Message) -> Result<Message, isize> {
     let mut bytes = message.encode();
     let code = invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);

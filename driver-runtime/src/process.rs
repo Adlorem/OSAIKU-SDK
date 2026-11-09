@@ -37,6 +37,7 @@ pub enum Role {
     Driver,
     HardwareManager,
     NetworkConsumer,
+    WifiManager,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
