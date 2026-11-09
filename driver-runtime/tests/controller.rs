@@ -92,8 +92,28 @@ fn evaluate_ep0_is_an_address_free_generation_bound_request() {
     assert_eq!(channel.fetch().unwrap().packet, 64);
     channel.fail();
     assert_eq!(channel.submit(r), Err(Error::Stale));
-    r.operation = 12;
+    r.operation = 13; // 12 is RETIRE, the last currently defined operation.
     assert_eq!(Request::decode(&r.encode()), Err(Error::Range));
+}
+#[test]
+fn retire_receipt_is_bound_to_its_slot_and_keeps_the_channel_live() {
+    let mut r = request(9);
+    r.operation = request::RETIRE;
+    r.slot = 2;
+    assert_eq!(Request::decode(&r.encode()), Ok(r));
+    let mut channel = Channel::new(9);
+    let sequence = channel.submit(r).unwrap();
+    assert_eq!(channel.fetch().unwrap().operation, request::RETIRE);
+    let reply = Reply {
+        sequence, generation: 9, slot: 2, endpoint: 0, code: 1, port: 0, actual: 0,
+    };
+    assert_eq!(channel.complete(Reply { generation: 10, ..reply }), Err(Error::Stale));
+    assert_eq!(channel.complete(Reply { slot: 3, ..reply }), Err(Error::Permission));
+    assert_eq!(channel.take(sequence), Ok(None));
+    channel.complete(reply).unwrap();
+    assert_eq!(channel.take(sequence), Ok(Some(reply)));
+    assert!(channel.active());
+    assert!(channel.submit(request(9)).is_ok(), "retiring a device does not retire the controller");
 }
 #[test]
 fn crash_invalidates_all_outstanding_receipts_and_children() {

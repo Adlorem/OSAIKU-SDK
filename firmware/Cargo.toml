@@ -1,0 +1,9 @@
+[package]
+name = "osaiku-firmware"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Immutable authenticated firmware artifacts, independent of device protocols"
+[dependencies]
+sha2 = { version = "=0.10.9", default-features = false }
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["fast", "zeroize"] }

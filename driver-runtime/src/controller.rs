@@ -87,6 +87,9 @@ pub mod request {
     pub const STOP: u8 = 10;
     /// Full-speed EP0 packet size discovered by USB core. No ring address.
     pub const EVALUATE_EP0: u8 = 11;
+    /// Stop this device's endpoints, collect their completions, then Disable
+    /// Slot. Completion permits slot reuse; the controller stays running.
+    pub const RETIRE: u8 = 12;
 }
 impl Request {
     pub fn encode(self) -> [u8; BYTES] {
@@ -133,7 +136,7 @@ impl Request {
         };
         if r.sequence == 0
             || r.generation == 0
-            || !(1..=11).contains(&r.operation)
+            || !(1..=12).contains(&r.operation)
             || usize::from(r.length) > if r.operation == request::TRANSFER {
                 crate::controller_io::XHCI_TRANSFER_BYTES
             } else { 4096 }

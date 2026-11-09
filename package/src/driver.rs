@@ -123,6 +123,16 @@ pub fn matches(m: &Manifest<'_>, bus: u16, identity: [u16; 6]) -> bool {
         })
 }
 
+/// Authenticated match records for an OS catalog adapter. Selection remains
+/// with the OS's one registry; this accessor performs no matching or ranking.
+pub fn match_records<'a>(m: &'a Manifest<'a>) -> impl Iterator<Item = (u16, [u16; 6])> + 'a {
+    let b = m.raw_metadata();
+    let start = (512 + usize::from(u16_at(b, 60)) + 7) & !7;
+    b[start..start + usize::from(u16_at(b, 470)) * MATCH_BYTES]
+        .chunks_exact(MATCH_BYTES)
+        .map(|r| (u16_at(r, 0), core::array::from_fn(|i| u16_at(r, 2 + i * 2))))
+}
+
 /// Bound the selected dependency graph before any activation is published.
 pub fn acyclic(graph: &[u64]) -> bool {
     if graph.len() > 32 {

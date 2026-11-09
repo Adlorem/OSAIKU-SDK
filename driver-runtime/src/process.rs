@@ -29,11 +29,15 @@ pub mod op {
     pub const HID_INPUT: u64 = 14;
     pub const BLOCK_FETCH: u64 = 15;
     pub const BLOCK_STEP: u64 = 16;
+    pub const START_HARDWARE: u64 = 20;
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     Manager,
     Driver,
+    HardwareManager,
+    NetworkConsumer,
+    WifiManager,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
@@ -321,7 +325,12 @@ impl Instance {
                     WATCHDOG
                 });
             }
-            op::SNAPSHOT | op::RECONCILE | op::START | op::STATUS | op::APPROVE
+            op::SNAPSHOT
+            | op::RECONCILE
+            | op::START
+            | op::STATUS
+            | op::APPROVE
+            | op::START_HARDWARE
                 if self.phase == Phase::Ready && role == Role::Manager =>
             {
                 ()

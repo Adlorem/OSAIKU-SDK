@@ -1,6 +1,6 @@
 //! Bounded application Painter commands. Native dispatch owns EGL on one worker.
 //! No pixels are read back; static glyph/image bytes remain valid through dispatch.
-use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use osaiku_ui::{
     font::ui_text_run,
     layout::Rect,
@@ -36,6 +36,10 @@ impl Command {
 pub type Dispatch = unsafe extern "C" fn(*mut Command) -> i32;
 static DISPATCH: AtomicUsize = AtomicUsize::new(0);
 static APPLICATION: AtomicU32 = AtomicU32::new(0);
+static VOLATILE_IMAGES: AtomicBool = AtomicBool::new(false);
+/// Opt this process into drawing mutable/private images without texture caching.
+/// Call before the first frame; static application assets retain the fast default.
+pub fn volatile_images() { VOLATILE_IMAGES.store(true, Ordering::Release); }
 /// Diagnostic label only; the kernel supplies the authenticated owner and seals.
 pub fn label(application:u32) { APPLICATION.store(application,Ordering::Release); }
 pub fn application()->u32 { APPLICATION.load(Ordering::Acquire) }
@@ -224,6 +228,10 @@ impl<F: FnMut(&mut Command) -> Result<(), u32>> Painter for GpuPainter<'_, F> {
         );
     }
     fn image(&mut self, at: Rect, image: &'static osaiku_ui::image::Image, clip: Rect) {
+        if VOLATILE_IMAGES.load(Ordering::Acquire) {
+            osaiku_ui::image::runs(self, at, image, clip);
+            return;
+        }
         self.emit(
             Command {
                 op: 6,

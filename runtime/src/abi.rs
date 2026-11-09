@@ -26,6 +26,7 @@ pub const SYSCALL_ERR_TIMEOUT: isize = -14;
 
 /// Published numbers for the initial native runtime subset.
 pub mod number {
+    pub const NETWORK_SERVICE: u64 = 408;
     pub const LOG_WRITE: u64 = 0;
     pub const PROCESS_EXIT: u64 = 1;
     pub const SCHEDULER_YIELD: u64 = 22;

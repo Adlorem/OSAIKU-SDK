@@ -438,3 +438,32 @@ must pass DMA/IRQ/memory/lifetime admission. A valid package signature alone doe
 not grant system trust, physical memory, firmware reservations, or IOMMU access.
 System drivers are updated through authenticated system releases, not catalog
 replacement. No driver package format or syscall ABI change is introduced.
+
+## DirectDevice v2 and first Ethernet backends (NET-02)
+
+The `direct` runtime binds a generation-bearing handle to one host-approved
+MMIO aperture and directional DMA arena. It supports 8/16/32/64-bit register
+access with width/alignment/page-policy validation. The aperture can belong to
+any single approved memory BAR; BAR addresses and MSI/MSI-X tables are never
+delegated to the process. `read_rx_at` and `write_tx_at` check the page direction
+and the complete intra-page range before copying. Descriptor page zero remains
+bidirectional; L2 class queues are separate CPU-only shared objects.
+
+Direct operation `PCI_CAPABILITY=15` takes an ordinal vendor-capability cursor
+and the current handle (or device/connection for the policy service). It returns
+at most 64 copied bytes and their length; length zero means end. The linked-list
+pointer is cleared. There is no arbitrary PCI offset or config-write operation.
+The host validates the whole bounded capability chain, even after a match.
+
+The OS virtio-net backend discovers modern PCI regions, requires VERSION_1,
+ACCESS_PLATFORM, EVENT_IDX, MAC, STATUS and MRG_RXBUF, and uses one 4096-byte RX
+descriptor per admitted frame. Descriptor/avail pages are DeviceRead; used/RX
+pages are DeviceWrite. The e1000e backend uses bidirectional descriptor
+writeback and separate directional payload pages; its page-zero control
+operations are mediated by the policy service. Neither backend qualifies
+physical hardware, I219/PCH or CNVi.
+
+`network_driver::Driver::device_mut` lets its owner poll link/health without
+modifying the class ownership ledgers. `native::syscall_count` reports cumulative
+calls through this process's runtime, including waits and logging, not systemwide
+calls. Native text logs retain their 160-byte limit.

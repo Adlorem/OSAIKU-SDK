@@ -61,8 +61,9 @@ fn slot(name: &str, x: u32, y: u32, width: u32, height: u32) -> HostSlot {
     }
 }
 /// The content rectangle in window-local coordinates; no scene/layout work.
+/// `title` 0 is an unframed window (a tray flyout): content fills it.
 pub fn content_bounds(title: u32, width: u32, height: u32) -> Option<Bounds> {
-    if width == 0 || width > 4096 || height > 4096 || title == 0 || title >= height {
+    if width == 0 || height == 0 || width > 4096 || height > 4096 || title >= height {
         return None;
     }
     Some(Bounds::new(0, title, width, height.checked_sub(title)?))

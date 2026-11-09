@@ -5,6 +5,10 @@ lifecycle, resource-lease and bounded-request contracts in `osaiku-driver-protoc
 and `osaiku-driver-runtime`. It has no private OS or UI dependency; hardware
 authority and process transport remain responsibilities of the host platform.
 
+The experimental [network service v1](docs/network-service-v1.md) exposes
+policy-granted, bounded UDP/TCP and DNS requests through `osaiku-runtime`.
+The host starts offline; transport access does not provide TLS or HTTPS.
+
 Stage 30 development starts with experimental `osaiku-ui`: bounded HTML/CSS-like
 compilation, versioned components, binding, layout, paint primitives and
 semantics. See [UI format and current limits](docs/ui-v1.md). This is not yet a

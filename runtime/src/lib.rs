@@ -25,6 +25,8 @@ pub mod gpu_painter;
 pub mod bcs;
 pub mod hosted;
 pub mod ipc;
+pub mod network;
+pub mod wifi;
 pub mod launch;
 pub mod lifecycle;
 pub mod metrics;

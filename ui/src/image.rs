@@ -43,7 +43,9 @@ impl ImageSet {
 
 /// The default `Painter::image`: one `fill_alpha` per row run of equal pixels
 /// inside `at` and `clip`; transparent pixels are skipped.
-pub(crate) fn runs<P: crate::paint::Painter + ?Sized>(
+/// Also usable by GPU painters for private mutable images that must bypass
+/// persistent texture caches. The painter retains only bounded drawing work.
+pub fn runs<P: crate::paint::Painter + ?Sized>(
     painter: &mut P,
     at: crate::layout::Rect,
     image: &'static Image,
