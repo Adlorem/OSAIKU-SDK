@@ -2,8 +2,8 @@
 //! existing OSAIKU shell. The host authenticates its sender before using these
 //! operations. No shell authority, memory mapping or syscall is granted here.
 use crate::{compat::*, lifecycle::*, window::*};
-mod raster;
 mod gpu;
+mod raster;
 mod surface;
 pub use raster::{HostedRaster, RasterError};
 
@@ -34,6 +34,9 @@ pub trait WindowApplication: Sized {
     fn poll_interval_us(&self) -> Option<u64> {
         None
     }
+    /// Enable SDK-owned hover timing and help overlays for `ui-tooltip`.
+    /// No application polling or tooltip event handling is required.
+    fn tooltips(&self) -> bool { false }
     /// Opt-in bounded observation of this application's own presentation state.
     fn observe_window_state(&self) -> bool {
         false
@@ -54,6 +57,17 @@ pub trait WindowApplication: Sized {
     /// Interpret dynamic rows against the event's original revision, not new data.
     fn event(&mut self, event: &osaiku_ui::input::Event) -> bool;
     fn render(&mut self, bytes: &mut [u8]) -> Result<usize, osaiku_ui::Error>;
+    /// Lay out virtual content for the exact content viewport of this frame.
+    /// WindowState describes the outer window and can also predate a resize.
+    /// The same offer is used for rasterization and revalidated at publication.
+    fn render_for_viewport(
+        &mut self,
+        _width: u32,
+        _height: u32,
+        bytes: &mut [u8],
+    ) -> Result<usize, osaiku_ui::Error> {
+        self.render(bytes)
+    }
     /// Called only after the kernel accepts the rendered recipe. Bind its data
     /// snapshot to this exact identity and retain the preceding accepted one
     /// for queued events. Refused renders/submissions never call this method.
@@ -83,6 +97,22 @@ pub trait WindowApplication: Sized {
         &[]
     }
 }
+
+#[cfg(any(test, all(target_arch = "x86_64", target_os = "none")))]
+fn render_offered(
+    app: &mut impl WindowApplication,
+    offer: &crate::surface::FrameOffer,
+    bytes: &mut [u8],
+) -> Result<usize, osaiku_ui::Error> {
+    app.render_for_viewport(
+        offer.geometry.content.width,
+        offer.geometry.content.height,
+        bytes,
+    )
+}
+
+#[cfg(test)]
+mod viewport_tests;
 
 pub struct WindowSession {
     state: DocumentEditorStateRecord,

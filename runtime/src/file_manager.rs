@@ -23,6 +23,9 @@ pub mod feedback {
     // Feedback values 2 and 3 are retired.
     pub const FILE_CREATED: u64 = 4;
     pub const ARTIFACT_SELECTED: u64 = 5;
+    /// Opening is unavailable; the file remains selectable and copyable.
+    pub const USB_COPY_ONLY: u64 = 6;
+    // Feedback 7 (model picker hint) is retired and refused.
 }
 pub mod action {
     pub const OPEN: u64 = 1;
@@ -50,6 +53,8 @@ pub mod action {
     pub const REMOVE: u64 = 46;
     pub const COMMIT_RENAME: u64 = 47;
     pub const DISMISS: u64 = 48;
+    /// Select a native file/folder for an already bound model chooser.
+    pub const CHOOSE_MODEL: u64 = 54;
 }
 // Compile-time protocol guard, including each command rather than assuming
 // future additions will preserve the numeric ordering of either family.
@@ -74,6 +79,7 @@ const _: () = {
                 && commands[i] != crate::file_browser::SKIP
         );
         assert!(commands[i] != crate::file_export::SAVE);
+        assert!(commands[i] != crate::file_broker::INPUT);
         let mut j = 0;
         while j < i {
             assert!(commands[i] != commands[j]);
@@ -296,6 +302,7 @@ impl View {
                     | feedback::FOLDER_CREATED
                     | feedback::FILE_CREATED
                     | feedback::ARTIFACT_SELECTED
+                    | feedback::USB_COPY_ONLY
             )
             || (self.feedback != feedback::NONE
                 && !matches!(

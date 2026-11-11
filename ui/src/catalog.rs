@@ -65,6 +65,8 @@ components![
     ("template", Template, Group),
     ("ui-chart", Chart, Chart),
     ("ui-value-bar", ValueBar, Meter),
+    ("ui-slider", Slider, Slider),
+    ("ui-tooltip", Tooltip, Button),
     ("ui-separator", Separator, Separator),
     ("ui-icon", Icon, Presentation),
     ("ui-popup-menu", Popup, Group),
@@ -76,7 +78,7 @@ pub const fn actionable(kind: Kind) -> bool {
     // A popup's own action is its dismissal (a press outside it, or Escape).
     matches!(
         kind,
-        Kind::Button | Kind::Row | Kind::TextInput | Kind::Popup
+        Kind::Button | Kind::Row | Kind::TextInput | Kind::Popup | Kind::Slider | Kind::Tooltip
     )
 }
 
@@ -88,9 +90,10 @@ pub struct Binding {
 }
 impl Binding {
     pub fn accepts(self, kind: Kind) -> bool {
+        if kind == Kind::Tooltip && self.slot == 5 { return false; }
         match self.data_type {
             DataType::Text => !kind.container(),
-            DataType::Percent => kind == Kind::ValueBar,
+            DataType::Percent => matches!(kind, Kind::ValueBar | Kind::Slider),
             DataType::Series => kind == Kind::Chart,
             DataType::Bool => true,
         }
@@ -194,8 +197,9 @@ pub fn write_reference(out: &mut impl Write) -> fmt::Result {
     for b in BINDINGS {
         let targets = match b.data_type {
             DataType::Text => "Leaves",
-            DataType::Percent => "ui-value-bar",
+            DataType::Percent => "ui-value-bar, ui-slider",
             DataType::Series => "ui-chart",
+            DataType::Bool if b.slot == 5 => "Any node except ui-tooltip (SDK-owned)",
             DataType::Bool => "Any node",
         };
         writeln!(

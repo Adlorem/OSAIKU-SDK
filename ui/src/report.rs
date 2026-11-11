@@ -188,7 +188,7 @@ impl Contract<'_> {
         self.validate()?;
         document.validate().map_err(Error::Document)?;
         for node in &document.nodes[..document.len as usize] {
-            if node.action != 0 && !self.actions.iter().any(|a| symbol(a.name) == node.action) {
+            if node.action != 0 && node.kind != Kind::Tooltip && !self.actions.iter().any(|a| symbol(a.name) == node.action) {
                 return Err(Error::UnknownAction);
             }
             if node.kind == Kind::VirtualList {

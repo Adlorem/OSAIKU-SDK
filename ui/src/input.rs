@@ -7,6 +7,11 @@ pub const FOCUS: u32 = 2;
 pub const SCROLL: u32 = 3;
 pub const TEXT: u32 = 4;
 pub const ERASE: u32 = 5;
+/// A `ui-slider` position, 0..=10000 basis points, carrying the slider's
+/// action. A press sends one; a drag sends one per changed position.
+pub const VALUE: u32 = 6;
+/// Enter (1) or leave/dismiss (0) a help icon. No motion coordinates or action.
+pub const HOVER: u32 = 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u64)]
@@ -36,18 +41,31 @@ struct ScrollCapture {
     track: crate::layout::Rect,
     grab: i32,
 }
+/// A pressed slider follows the pointer until release, through new content
+/// revisions of the same window; it reads the slider's current geometry.
+#[derive(Clone, Copy)]
+struct SliderCapture {
+    target: Identity,
+    element: u32,
+    last: i32,
+}
 /// A scroll gesture may follow new content revisions of the same window, but
 /// never a new owner/incarnation, another element, or changed track geometry.
 pub struct Pointer {
     capture: Option<ScrollCapture>,
+    slider: Option<SliderCapture>,
 }
 impl Pointer {
-    pub const EMPTY: Self = Self { capture: None };
+    pub const EMPTY: Self = Self {
+        capture: None,
+        slider: None,
+    };
     pub fn captured(&self) -> bool {
-        self.capture.is_some()
+        self.capture.is_some() || self.slider.is_some()
     }
     pub fn cancel(&mut self) {
         self.capture = None;
+        self.slider = None;
     }
     pub fn event(
         &mut self,
@@ -91,13 +109,56 @@ impl Pointer {
                 });
                 return self.scroll(view, scene, target, y);
             }
-            return pointer_event(view, scene, target, x, y);
+            let event = pointer_event(view, scene, target, x, y);
+            if let Some(e) = event.filter(|e| e.kind == VALUE) {
+                self.slider = Some(SliderCapture {
+                    target,
+                    element: e.element,
+                    last: e.value,
+                });
+            }
+            return event;
         }
-        let result = self.scroll(view, scene, target, y);
+        let result = if self.slider.is_some() {
+            self.slide(view, scene, target, x)
+        } else {
+            self.scroll(view, scene, target, y)
+        };
         if phase == PointerPhase::Release {
             self.cancel();
         }
         result
+    }
+    fn slide(
+        &mut self,
+        view: &Document,
+        scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+        target: Identity,
+        x: i32,
+    ) -> Option<Event> {
+        let mut capture = self.slider.take()?;
+        if (
+            capture.target.epoch,
+            capture.target.owner,
+            capture.target.window,
+            capture.target.incarnation,
+        ) != (
+            target.epoch,
+            target.owner,
+            target.window,
+            target.incarnation,
+        ) {
+            return None;
+        }
+        let index = view.nodes[..view.len as usize]
+            .iter()
+            .position(|n| n.id == capture.element)?;
+        let event = slider_event(view, scene, target, index, x)?;
+        // Only a changed position is news to the application.
+        let changed = event.value != capture.last;
+        capture.last = event.value;
+        self.slider = Some(capture);
+        changed.then_some(event)
     }
     fn scroll(
         &mut self,
@@ -216,6 +277,9 @@ pub fn key_event(
             let index = layout.focus_next(view, focused, matches!(key, Key::Previous))?;
             event.element = view.nodes[index].id;
             event.kind = FOCUS;
+            if view.nodes[index].kind == crate::Kind::Tooltip {
+                event.action = crate::tooltip::ACTION;
+            }
         }
         Key::Character(c)
             if c != ' '
@@ -230,6 +294,13 @@ pub fn key_event(
             event.kind = ERASE;
         }
         Key::Cancel => {
+            if let Some(n) = view.nodes[..view.len as usize].iter().find(|n|
+                n.kind == crate::Kind::Tooltip && n.state & crate::state::SELECTED != 0) {
+                event.element = n.id;
+                event.kind = HOVER;
+                event.validate(target, view).ok()?;
+                return Some(event);
+            }
             let index = layout.modal_popup(view)?;
             event.element = view.nodes[index].id;
             event.kind = ACTIVATE;
@@ -322,6 +393,12 @@ pub fn pointer_event(
         }
     }
     let element = scene.hit(x, y)?;
+    let index = view.nodes[..view.len as usize]
+        .iter()
+        .position(|n| n.id == element)?;
+    if view.nodes[index].kind == crate::Kind::Slider {
+        return slider_event(view, scene, target, index, x);
+    }
     // A pointer press enters a text field; only keyboard activation submits
     // its action. Sharing activation here made rename/search fields submit
     // as soon as the user clicked them to edit.
@@ -340,6 +417,31 @@ pub fn pointer_event(
         return Some(event);
     }
     activation(view, target, element)
+}
+/// The value under `x` on slider `index`, from the geometry it is drawn with.
+fn slider_event(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    target: Identity,
+    index: usize,
+    x: i32,
+) -> Option<Event> {
+    let layout = scene.layout();
+    let placed = &layout.nodes[index];
+    if view.nodes[index].kind != crate::Kind::Slider || placed.hidden || placed.disabled {
+        return None;
+    }
+    let content = placed.bounds.inset(view.insets(layout.style(view, index)));
+    let geometry = crate::slider::geometry(content)?;
+    let event = Event {
+        target,
+        element: view.nodes[index].id,
+        kind: VALUE,
+        value: i32::from(geometry.value(x)),
+        action: view.nodes[index].action,
+    };
+    event.validate(target, view).ok()?;
+    Some(event)
 }
 /// Whether an open popup decides this press: the point is on one, or a menu
 /// with a dismiss action is open (then a press elsewhere only closes it).
@@ -449,7 +551,9 @@ impl Event {
             .position(|n| n.id == self.element)
             .ok_or(Error::Stale)?;
         let node = &view.nodes[index];
-        if self.action != 0 {
+        // Only a slider position names its action; other input carries none.
+        let action = if self.kind == VALUE || (self.kind == FOCUS && node.kind == crate::Kind::Tooltip) { node.action } else { 0 };
+        if self.action != action {
             return Err(Error::Value);
         }
         match self.kind {
@@ -461,6 +565,11 @@ impl Event {
                     && node.state & crate::state::FOCUSED != 0
                     && self.value == 0 => {}
             FOCUS if node.action != 0 && self.value == 0 => {}
+            HOVER if node.kind == crate::Kind::Tooltip && (0..=1).contains(&self.value) => {}
+            VALUE
+                if node.kind == crate::Kind::Slider
+                    && node.action != 0
+                    && (0..=10000).contains(&self.value) => {}
             SCROLL
                 if (view.resolved_style(index, u32::MAX).overflow == 2
                     || view.resolved_style(index, 0).overflow == 2)
@@ -496,7 +605,8 @@ impl Queue {
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
-    /// Absolute scroll offsets coalesce only with the same trailing scroll.
+    /// Absolute scroll offsets and slider positions coalesce only with the
+    /// same trailing event kind for the same element and target.
     /// Full queues otherwise refuse the event; never overwrite an action.
     pub fn push_event(
         &mut self,
@@ -505,9 +615,12 @@ impl Queue {
         view: &Document,
     ) -> Result<(), Error> {
         event.validate(presented, view)?;
-        if self.len != 0 && event.kind == SCROLL {
+        if self.len != 0 && matches!(event.kind, SCROLL | VALUE | HOVER) {
             let last = &mut self.events[(self.start + self.len - 1) % CAPACITY];
-            if last.kind == SCROLL && last.target == event.target && last.element == event.element {
+            if last.kind == event.kind
+                && last.target == event.target
+                && (last.element == event.element || event.kind == HOVER)
+            {
                 *last = event;
                 return Ok(());
             }

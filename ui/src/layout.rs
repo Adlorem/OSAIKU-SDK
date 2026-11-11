@@ -106,6 +106,7 @@ impl Measurements {
                     Kind::Chart => 120,
                     Kind::Separator => 1,
                     Kind::ValueBar => 16,
+                    Kind::Slider => 18,
                     _ => s.font_size as u32 + top + bottom,
                 }
             } else {
@@ -688,6 +689,8 @@ impl Layout {
             })
             .find(|i| {
                 view.nodes[*i].action != 0
+                    // No key moves a slider yet; Tab must not stop on one.
+                    && view.nodes[*i].kind != Kind::Slider
                     && !self.nodes[*i].hidden
                     && !self.nodes[*i].disabled
                     && self.nodes[*i].clip.width > 0

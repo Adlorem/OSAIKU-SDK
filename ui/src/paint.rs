@@ -376,6 +376,29 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             self.popup_shadow(painter, i);
             self.paint_layer(painter, Some(i));
         }
+        // Help never participates in hit testing or clips to a scroll parent.
+        for i in 0..self.layout().len {
+            let n = self.view.nodes[i];
+            let p = self.layout().nodes[i];
+            if n.kind != Kind::Tooltip || n.state & state::SELECTED == 0
+                || p.hidden || p.disabled || p.clip.width == 0 || p.clip.height == 0
+                || self.layout().modal_popup(self.view).is_some_and(|m| Layout::popup_of(self.view, i) != Some(m))
+            { continue; }
+            let clip = self.layout().viewport;
+            let text = self.text_of(i);
+            let bounds = crate::tooltip::bounds(p.clip, clip, text);
+            if !painter.visible(bounds) { continue; }
+            let background = self.color(theme::CARD, 0) & 0x00ff_ffff;
+            let color = self.color(theme::TEXT, 0) & 0x00ff_ffff;
+            painter.fill_rounded(bounds, 8, background, 255, clip);
+            painter.stroke_rounded(bounds, 8, [1;4], self.color(theme::LINE, 0) & 0x00ff_ffff, 255, clip);
+            let inner = bounds.inset([crate::tooltip::PAD;4]);
+            for (line, text) in crate::tooltip::lines(text, inner.width).enumerate() {
+                let at = Rect { y: inner.y + line as i32 * crate::tooltip::LINE_HEIGHT as i32,
+                    height: crate::tooltip::LINE_HEIGHT, ..inner };
+                painter.text(at, text, crate::tooltip::FONT, color, inner.intersect(clip));
+            }
+        }
     }
     /// A soft drop shadow under a popup, inside the viewport.
     fn popup_shadow(&self, painter: &mut impl Painter, i: usize) {
@@ -501,6 +524,9 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             let r = p.bounds.inset(self.view.insets(s));
             let color = s.color;
             match n.kind {
+                Kind::Tooltip => {
+                    painter.text(aligned(r, "?", s, decoration), "?", s.font_size, color, p.clip);
+                }
                 Kind::Text | Kind::Button | Kind::Cell | Kind::TextInput => {
                     let text = self.text_of(i);
                     let at = aligned(r, text, s, decoration);
@@ -587,6 +613,44 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                         );
                     } else {
                         painter.text(r, "--", s.font_size, color, p.clip);
+                    }
+                }
+                Kind::Slider => {
+                    let Some(g) = crate::slider::geometry(r) else {
+                        continue;
+                    };
+                    // The track, the part up to the thumb in the element's
+                    // colour, then a light round thumb (muted while disabled).
+                    let radius = (g.track.height / 2) as u8;
+                    let track = self.theme.color(theme::TRACK, 0);
+                    fill_box(
+                        painter,
+                        g.track,
+                        radius,
+                        track & 0x00ff_ffff,
+                        (track >> 24) as u8,
+                        p.clip,
+                    );
+                    if n.value <= 10000 {
+                        let filled = Rect {
+                            width: (g.centre(n.value) - g.track.x) as u32,
+                            ..g.track
+                        };
+                        fill_box(painter, filled, radius, color, 255, p.clip);
+                        let thumb = g.thumb(n.value);
+                        let shadow = Rect {
+                            x: thumb.x - 1,
+                            width: thumb.width + 2,
+                            height: thumb.height + 2,
+                            ..thumb
+                        };
+                        painter.fill_rounded(shadow, g.knob / 2 + 1, 0, 80, p.clip);
+                        let face = if p.disabled {
+                            color
+                        } else {
+                            self.color(theme::TEXT, 0) & 0x00ff_ffff
+                        };
+                        painter.fill_rounded(thumb, g.knob / 2, face, 255, p.clip);
                     }
                 }
                 Kind::Chart => self.chart(painter, n, r, color, decoration.fill_opacity, p.clip),

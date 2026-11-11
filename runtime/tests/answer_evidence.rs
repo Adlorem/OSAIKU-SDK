@@ -162,6 +162,50 @@ fn final_client() -> (Client, Packet) {
     assert_eq!(p.operation, op::EVIDENCE);
     (c, p)
 }
+
+#[test]
+fn long_utf8_answer_streams_past_thirty_seconds_without_enlarging_input() {
+    let mut c = Client::EMPTY;
+    c.reset(9, 3).unwrap();
+    let p = request(&mut c, 1);
+    reply(&mut c, p, Status::Ok, &[], 2);
+    c.begin("hi", false).unwrap();
+    let p = request(&mut c, 3);
+    reply(&mut c, p, Status::Pending, &[], 4);
+    let chunk = "Żółw. ";
+    let mut now = 5;
+    for _ in 0..200 {
+        let p = request(&mut c, now);
+        assert_eq!(p.operation, op::OBSERVE);
+        now += 1000;
+        reply(&mut c, p, Status::Pending, chunk.as_bytes(), now);
+        assert!(c.active());
+        now += 1;
+    }
+    let p = request(&mut c, now);
+    reply(&mut c, p, Status::Complete, &[], now + 1);
+    let p = request(&mut c, now + 2);
+    assert_eq!(p.operation, op::EVIDENCE);
+    let e = Evidence {
+        context: p.request,
+        ..Evidence::EMPTY
+    };
+    reply(&mut c, p, Status::Complete, &e.encode(), now + 3);
+    assert_eq!(c.status, Status::Complete);
+    assert!(!c.active());
+    assert!(c.elapsed_ms() > 30_968);
+    assert_eq!(c.output.as_str(), chunk.repeat(200));
+    assert!(c.output.as_str().len() > osaiku_runtime::assistant::TEXT);
+    let mut retained = osaiku_runtime::assistant::Answer::EMPTY;
+    retained.append("Poprzednia odpowiedź.").unwrap();
+    c.output.swap(&mut retained);
+    assert_eq!(retained.as_str(), chunk.repeat(200));
+    assert_eq!(c.output.as_str(), "Poprzednia odpowiedź.");
+    c.reset(9, 3).unwrap();
+    assert_eq!(retained.as_str(), chunk.repeat(200));
+    let mut input = osaiku_runtime::assistant::Text::EMPTY;
+    assert_eq!(input.append(&"x".repeat(1025)), Err(Status::Limit));
+}
 #[test]
 fn client_does_not_complete_until_correlated_provenance_arrives() {
     let (mut c, p) = final_client();

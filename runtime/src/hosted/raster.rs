@@ -38,6 +38,21 @@ pub struct HostedRaster {
 unsafe impl Sync for HostedRaster {}
 
 impl HostedRaster {
+    /// Decorate the same recipe that will be sealed and published. Reuse the
+    /// guarded raster scratch rather than placing a Document on a native stack.
+    pub fn prepare_tooltips(&self, wire: &mut [u8], len: usize, width: u32, height: u32,
+        state: &mut osaiku_ui::tooltip::State) -> Result<usize, Error> {
+        if self.busy.swap(true, Ordering::Acquire) { return Err(Error::Stale); }
+        struct Guard<'a>(&'a AtomicBool);
+        impl Drop for Guard<'_> { fn drop(&mut self) { self.0.store(false, Ordering::Release); } }
+        let _guard = Guard(&self.busy);
+        // SAFETY: the guard uniquely owns scratch until encoding finishes.
+        let scratch = unsafe { &mut *self.scratch.get() };
+        Document::decode_into(wire.get(..len).ok_or(Error::Buffer)?, &mut scratch.document)?;
+        Layout::compute_in(&scratch.document, width, height, &mut scratch.layout_workspace, &mut scratch.layout)?;
+        state.apply(&mut scratch.document, &scratch.layout);
+        scratch.document.encode(wire)
+    }
     pub const fn new() -> Self {
         Self {
             busy: AtomicBool::new(false),
