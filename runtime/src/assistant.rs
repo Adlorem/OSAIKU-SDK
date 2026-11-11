@@ -4,12 +4,15 @@ pub mod connection;
 pub mod evidence;
 pub mod execution;
 pub mod failure;
+pub mod settings;
 /// V2: CANCEL acceptance is separate from the terminal result and preserves text.
 pub const MAGIC: u64 = 0x324e4f434941534f;
 pub const BYTES: usize = 160;
 pub const HEADER: usize = 64;
 pub const PAYLOAD: usize = BYTES - HEADER;
 pub const TEXT: usize = 1024;
+/// Answers have a separate admitted buffer; this does not enlarge input requests.
+pub const ANSWER_BYTES: usize = 8 * 1024;
 /// Finite command/setup budget. Interactive OBSERVE has no overall time limit;
 /// independent transport, computation and cleanup watchdogs remain in force.
 pub const REQUEST_MS: u64 = 300_000;
@@ -57,6 +60,7 @@ pub mod op {
     pub const CONNECTION: u64 = 9;
     /// One output credit, deferred until data or a terminal state is available.
     pub const OBSERVE: u64 = 10;
+    pub const INPUT_CONFIGURED: u64 = 11;
 }
 #[repr(u64)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -109,7 +113,7 @@ impl Packet {
             offset: word(6),
             value: word(7),
         };
-        if !(op::NEW..=op::OBSERVE).contains(&p.operation)
+        if !(op::NEW..=op::INPUT_CONFIGURED).contains(&p.operation)
             || p.session == 0
             || p.request == 0
             || p.window == 0
@@ -187,17 +191,24 @@ impl Packet {
 }
 
 /// UTF-8 storage shared by the app and broker; dropping/clearing scrubs bytes.
-pub struct Text {
-    bytes: [u8; TEXT],
+pub struct TextBuffer<const N: usize> {
+    bytes: [u8; N],
     len: usize,
 }
-impl Text {
+pub type Text = TextBuffer<TEXT>;
+pub type Answer = TextBuffer<ANSWER_BYTES>;
+impl<const N: usize> TextBuffer<N> {
     pub const EMPTY: Self = Self {
-        bytes: [0; TEXT],
+        bytes: [0; N],
         len: 0,
     };
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(&self.bytes[..self.len]).unwrap_or("")
+    }
+    /// Exchange retained text without placing an entire answer on the stack.
+    pub fn swap(&mut self, other: &mut Self) {
+        self.bytes.swap_with_slice(&mut other.bytes);
+        core::mem::swap(&mut self.len, &mut other.len);
     }
     pub fn clear(&mut self) {
         for b in &mut self.bytes {
@@ -206,7 +217,7 @@ impl Text {
         self.len = 0;
     }
     pub fn append(&mut self, s: &str) -> Result<(), Status> {
-        if self.len + s.len() > TEXT {
+        if self.len + s.len() > N {
             return Err(Status::Limit);
         }
         self.bytes[self.len..self.len + s.len()].copy_from_slice(s.as_bytes());
@@ -231,12 +242,12 @@ impl Text {
         Some(&s[offset..end])
     }
 }
-impl core::fmt::Write for Text {
+impl<const N: usize> core::fmt::Write for TextBuffer<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         self.append(s).map_err(|_| core::fmt::Error)
     }
 }
-impl Drop for Text {
+impl<const N: usize> Drop for TextBuffer<N> {
     fn drop(&mut self) {
         self.clear();
     }
@@ -278,9 +289,10 @@ struct Cleanup {
 /// One outstanding exchange, bounded UTF-8 chunks, no retries after an unknown
 /// delivery outcome. Call tick at most once per display interval (50 ms).
 pub struct Client {
+    sampling: Option<settings::Sampling>,
     pub evidence: evidence::Evidence,
     pub input: Text,
-    pub output: Text,
+    pub output: Answer,
     pub status: Status,
     pub session: u64,
     request: u64,
@@ -324,9 +336,10 @@ impl Client {
         deadline.map(|until| until.saturating_sub(now).max(1))
     }
     pub const EMPTY: Self = Self {
+        sampling: None,
         evidence: evidence::Evidence::EMPTY,
         input: Text::EMPTY,
-        output: Text::EMPTY,
+        output: Answer::EMPTY,
         status: Status::Ok,
         session: 0,
         request: 0,
@@ -390,6 +403,23 @@ impl Client {
         self.elapsed = 0;
         Ok(())
     }
+    pub fn begin_configured(
+        &mut self,
+        prompt: &str,
+        sampling: settings::Sampling,
+    ) -> Result<(), Status> {
+        if !sampling.valid() {
+            return Err(Status::Invalid);
+        }
+        self.begin(prompt, false)?;
+        self.sampling = Some(sampling);
+        if self.after_connect != 0 {
+            self.after_connect = op::INPUT_CONFIGURED;
+        } else {
+            self.phase = op::INPUT_CONFIGURED;
+        }
+        Ok(())
+    }
     pub fn begin(&mut self, prompt: &str, resources: bool) -> Result<(), Status> {
         if self.clock_failed {
             return Err(Status::ClockFailure);
@@ -430,6 +460,7 @@ impl Client {
         if !resources {
             self.input.append(prompt)?;
         }
+        self.sampling = None;
         self.phase = if resources { op::RESOURCES } else { op::INPUT };
         if reconnect {
             self.after_connect = self.phase;
@@ -544,7 +575,7 @@ impl Client {
         }
         match self.phase {
             op::NEW => Progress::Connecting,
-            op::INPUT => Progress::Sending,
+            op::INPUT | op::INPUT_CONFIGURED => Progress::Sending,
             op::RESOURCES | op::DIAGNOSTICS => Progress::Reading,
             op::OBSERVE if self.output.as_str().is_empty() => Progress::Waiting,
             op::OBSERVE => Progress::Receiving,
@@ -590,7 +621,8 @@ impl Client {
     fn transport_failed(&mut self, status: Status, now: u64) {
         let accepted_input = self.backend != 0
             && (matches!(self.phase, op::OBSERVE | op::EVIDENCE)
-                || self.phase == op::INPUT && (self.offset != 0 || self.waiting.is_some()));
+                || matches!(self.phase, op::INPUT | op::INPUT_CONFIGURED)
+                    && (self.offset != 0 || self.waiting.is_some()));
         let cleanup = accepted_input.then_some(Cleanup {
             packet: Packet {
                 operation: op::CANCEL,
@@ -688,7 +720,7 @@ impl Client {
                     self.request = next;
                 }
             }
-            op::INPUT if matches!(status, Status::Ok | Status::Pending) => {
+            op::INPUT | op::INPUT_CONFIGURED if matches!(status, Status::Ok | Status::Pending) => {
                 self.offset += self.sent;
                 if self.offset == self.input.as_str().len() && status == Status::Pending {
                     self.phase = op::OBSERVE;
@@ -789,9 +821,11 @@ impl Client {
             self.transport_failed(Status::ServiceTimeout, now);
             return true;
         }
-        let payload = if self.phase == op::INPUT {
+        let configured = self.phase == op::INPUT_CONFIGURED;
+        let input = matches!(self.phase, op::INPUT | op::INPUT_CONFIGURED);
+        let payload = if input {
             self.input
-                .chunk(self.offset, PAYLOAD)
+                .chunk(self.offset, if configured { PAYLOAD - 32 } else { PAYLOAD })
                 .unwrap_or("")
                 .as_bytes()
         } else {
@@ -804,7 +838,7 @@ impl Client {
             window: self.window,
             incarnation: self.incarnation,
             offset: self.offset as u64,
-            value: if self.phase == op::INPUT {
+            value: if input {
                 self.input.as_str().len() as u64
             } else {
                 0
@@ -812,6 +846,14 @@ impl Client {
         };
         let mut bytes = [0; BYTES];
         self.sent = payload.len();
+        let mut configured_bytes = [0; PAYLOAD];
+        let payload = if configured {
+            configured_bytes[..32].copy_from_slice(&self.sampling.unwrap().encode());
+            configured_bytes[32..32 + payload.len()].copy_from_slice(payload);
+            &configured_bytes[..32 + payload.len()]
+        } else {
+            payload
+        };
         let result = p
             .encode(payload, &mut bytes)
             .ok_or(SendError::Unavailable)

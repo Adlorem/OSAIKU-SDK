@@ -7,6 +7,9 @@ bounded parser for build scripts and future user-space report hosts.
 
 ## Authoring
 
+Use [`ui-tooltip`](tooltips.md) for help icons with delayed hover explanations
+and keyboard access. Hosted applications opt in with `tooltips() -> true`.
+
 Use `.ui.html` and `.ui.css`. Every element requires a unique stable `id`.
 Names use 1–64 ASCII alphanumeric, dash, underscore or dot characters; selectors
 use type, `.class`, or `#id` (dots inside IDs are not selectable in initial CSS).
@@ -30,6 +33,7 @@ comments between rules are supported.
 | ui-virtual-list, template, ui-list-item | Scroll viewport, single row prototype, selectable row |
 | ui-chart | Percent history, timestamped series with missing readings |
 | ui-value-bar | Percent meter; unavailable is distinct from zero |
+| ui-slider | Percent control; a press or drag sends `VALUE`, `bind:value` places the thumb |
 | ui-separator, ui-icon | Separator; decorative square mark, or a host image with `src` |
 | ui-popup-menu | Menu above the document at an anchor point (context menu) |
 
@@ -41,7 +45,7 @@ true by presence, including `disabled="false"`; bindings supply dynamic values.
 | Binding | Rust value | Targets |
 | --- | --- | --- |
 | bind:text | Value::Text | Leaves |
-| bind:value | Value::Percent(Option<u16>) | ui-value-bar |
+| bind:value | Value::Percent(Option<u16>) | ui-value-bar, ui-slider |
 | bind:series | Value::Series | ui-chart |
 | bind:hidden / disabled / selected | Value::Bool | Any node |
 
@@ -56,7 +60,19 @@ sample has only `0 s`, even if its value is unavailable. Lines and point markers
 are clipped to the plot; labels respect the chart and scroll viewport clips.
 Two series together fit 120 points. `Bindings` resolves locally; callbacks
 never enter encoded content. Data text is literal. `action` names application
-behavior, only on buttons/selectable rows/text inputs; it grants no system privileges.
+behavior, only on buttons/selectable rows/text inputs/sliders; it grants no system privileges.
+
+`ui-slider` draws a round thumb two thirds as tall as its content box (the
+whole box is the press target) on a track a third of the thumb's height,
+filled up to the thumb in the element's `color` (the `accent` token by
+default, muted while disabled); the thumb is the `text` colour. A
+pointer press on it sends `VALUE` with the position under the pointer and the
+slider's action; `input::Pointer` keeps the slider until release, follows
+motion outside it and repaint revisions of the same window, and sends a new
+`VALUE` only when the position changes. `slider::geometry` is shared by paint
+and input. The application snaps the value and answers with `bind:value`; an
+unavailable value hides the thumb. No key moves a slider yet, so focus
+traversal skips it.
 
 `ui-text-input` renders bounded literal text and participates in focus, clipping
 and scrolling. A pointer press sends `FOCUS` without executing the field's
@@ -446,9 +462,10 @@ application integration and record paired OS/SDK revisions.
 
 
 The native event record is `input::Event` (56 bytes): presented identity,
-element, kind, signed value, action. Kinds are ACTIVATE, FOCUS and SCROLL;
-SCROLL carries an absolute clamped vertical offset (0..1048576), not wheel
-units. Queue capacity is 16 with explicit overflow refusal. Delivery validates
+element, kind, signed value, action. Kinds are ACTIVATE, FOCUS, SCROLL,
+TEXT, ERASE and VALUE; SCROLL carries an absolute clamped vertical offset
+(0..1048576), not wheel units. VALUE carries 0..10000 basis points and the
+slider's action; consecutive SCROLL or VALUE events for one element coalesce. Queue capacity is 16 with explicit overflow refusal. Delivery validates
 the presented identity and ancestor states again. Host adapters authenticate
 the caller and take only events for that window owner. The 48-byte
 `Action` remains an activation helper; it is not the native receive buffer.

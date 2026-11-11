@@ -9,6 +9,8 @@ pub const REPLACE: u64 = 5;
 /// Ask for a new file in a human-selected directory. The payload is one file
 /// name, never a path. Confirmation grants only create-if-absent for that name.
 pub const CREATE: u64 = 6;
+/// Retired model chooser operation; always refused.
+pub const OPEN_MODEL: u64 = 7;
 pub const CAPACITY: usize = 4096;
 /// Authenticated host delivery of a READ scope, already bound by the broker.
 /// Receiving these bytes from another app never authorizes an open.
@@ -169,7 +171,7 @@ impl Reply {
     };
     pub fn valid_for(&self, r: &Request) -> bool {
         r.canonical()
-            && self.version == 1
+            && self.version == r.version
             && self.sequence == r.sequence
             && self.status <= 6
             && (matches!(r.operation, OPEN | CREATE) || self.token == r.token)

@@ -5,6 +5,41 @@ use osaiku_runtime::{
 };
 use std::cell::RefCell;
 
+#[test]
+fn help_decorates_the_encoded_recipe_and_seals_the_same_pixels_and_semantics() {
+    use osaiku_ui::{input, symbol, tooltip, Document, Identity, MAX_WIRE};
+    static RASTER: HostedRaster = HostedRaster::new();
+    let doc = osaiku_ui::compiler::compile(
+        "<main id=\"root\"><ui-tooltip id=\"help\">Opis ustawienia</ui-tooltip></main>", "").unwrap();
+    let mut wire = vec![0; MAX_WIRE];
+    let len = doc.encode(&mut wire).unwrap();
+    let original_hash = osaiku_ui::wire_hash(&wire[..len]);
+    let mut state = tooltip::State::EMPTY;
+    state.event(&input::Event { target: Identity { epoch:1, owner:8, window:1, incarnation:1, revision:1 },
+        element:symbol("help"),kind:input::HOVER,value:1,action:0 }, 0);
+    state.tick(500);
+    let len = RASTER.prepare_tooltips(&mut wire,len,64,129,&mut state).unwrap();
+    let decorated = Document::decode(&wire[..len]).unwrap();
+    assert_ne!(original_hash,osaiku_ui::wire_hash(&wire[..len]));
+    assert_ne!(decorated.nodes[1].state & osaiku_ui::state::SELECTED,0);
+    let mut sealed=false;
+    RASTER.publish_with(offer(),&wire[..len],|req,data,receipt| {
+        if req.operation == SEAL {
+            let metadata=unsafe { &*data.as_ptr().cast::<Publication>() };
+            assert!(metadata.validate().is_ok());
+            sealed=true;
+        }
+        accept(req,data,receipt)
+    },|| Ok(())).unwrap();
+    assert!(sealed);
+    state.cancel();
+    let len = RASTER.prepare_tooltips(&mut wire,len,64,129,&mut state).unwrap();
+    assert_eq!(original_hash,osaiku_ui::wire_hash(&wire[..len]));
+    assert_eq!(RASTER.prepare_tooltips(&mut wire,MAX_WIRE+1,64,129,&mut state),Err(osaiku_ui::Error::Buffer));
+    // A failed preparation releases its guard.
+    RASTER.prepare_tooltips(&mut wire,len,64,129,&mut state).unwrap();
+}
+
 fn offer() -> FrameOffer {
     FrameOffer {
         geometry: GeometryOffer {

@@ -81,6 +81,8 @@ impl Theme {
 pub const TOKEN_COUNT: u8 = 15;
 pub const TEXT: u8 = 1;
 pub const SURFACE: u8 = 3;
+pub const CARD: u8 = 4;
+pub const LINE: u8 = 5;
 pub const MUTED: u8 = 2;
 pub const TRACK: u8 = 6;
 pub const SELECTED: u8 = 7;

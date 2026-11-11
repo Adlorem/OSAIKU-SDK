@@ -395,3 +395,37 @@ fn observed_output_has_no_empty_poll_or_whole_response_timeout() {
     assert!(!c.active());
     assert_eq!(c.output.as_str(), "część");
 }
+
+#[test]
+fn configured_request_captures_settings_and_preserves_utf8_chunk_offsets() {
+    let mut c = connected();
+    let prefs = settings::Sampling {
+        temperature: 300,
+        ..settings::Sampling::DEFAULT
+    };
+    let prompt = "ż".repeat(70);
+    c.begin_configured(&prompt, prefs).unwrap();
+    let mut output = String::new();
+    for now in [10, 20, 30] {
+        let mut p = None;
+        c.tick(now, |b| {
+            let (packet, bytes) = Packet::decode(b).unwrap();
+            assert_eq!(packet.operation, op::INPUT_CONFIGURED);
+            assert_eq!(packet.offset, output.len() as u64);
+            assert_eq!(settings::Sampling::decode(&bytes[..32]), Some(prefs));
+            output.push_str(core::str::from_utf8(&bytes[32..]).unwrap());
+            p = Some(packet);
+            Ok(())
+        });
+        let status = if output == prompt {
+            Status::Pending
+        } else {
+            Status::Ok
+        };
+        assert!(reply(&mut c, p.unwrap(), status, 1, now + 1));
+    }
+    assert_eq!(output, prompt);
+    assert_eq!(c.progress(), Progress::Waiting);
+    c.cancel();
+    assert_eq!(request(&mut c, 40).operation, op::CANCEL);
+}

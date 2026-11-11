@@ -31,6 +31,8 @@ Document wire major: 11. Catalog versions are exact-match.
 | `template` | Template | Group | false |
 | `ui-chart` | Chart | Chart | false |
 | `ui-value-bar` | ValueBar | Meter | false |
+| `ui-slider` | Slider | Slider | true |
+| `ui-tooltip` | Tooltip | Button | true |
 | `ui-separator` | Separator | Separator | false |
 | `ui-icon` | Icon | Presentation | false |
 | `ui-popup-menu` | Popup | Group | true |
@@ -40,11 +42,11 @@ Document wire major: 11. Catalog versions are exact-match.
 | Attribute | Type | Targets |
 | --- | --- | --- |
 | `bind:text` | text | Leaves |
-| `bind:value` | percent | ui-value-bar |
+| `bind:value` | percent | ui-value-bar, ui-slider |
 | `bind:series` | series | ui-chart |
 | `bind:hidden` | bool | Any node |
 | `bind:disabled` | bool | Any node |
-| `bind:selected` | bool | Any node |
+| `bind:selected` | bool | Any node except ui-tooltip (SDK-owned) |
 
 Text is literal UTF-8 (at most 256 bytes per leaf). Percent is optional,
 0..10000 basis points; unavailable is distinct from zero. Series contain at

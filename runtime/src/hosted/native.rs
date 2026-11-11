@@ -23,6 +23,8 @@ struct State<A> {
     model_changed: bool,
     visible: bool,
     next_observation: u64,
+    tooltip: osaiku_ui::tooltip::State,
+    tooltip_geometry: u64,
 }
 
 /// Run the window-host protocol using the kernel-issued launch context.
@@ -61,7 +63,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
         let mut mode = ReceiveMode::Blocking;
         if let Some(page) = session.as_mut() {
             let state = page.value_mut();
-            if state.current.epoch != 0 && state.app.observe_window_state() {
+            if state.current.epoch != 0 && (state.app.observe_window_state() || state.app.tooltips()) {
                 if let Ok(now) = monotonic_ms() {
                     if now >= state.next_observation {
                         state.next_observation = now.saturating_add(200);
@@ -80,23 +82,29 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                         ) {
                             state.visible = observation.visible != 0;
                             let changed = state.app.window_state(observation);
-                            state.model_changed |= changed;
-                            state.dirty |= changed;
+                            let help_changed = if observation.geometry_revision != state.tooltip_geometry || !state.visible {
+                                state.tooltip.cancel()
+                            } else { false };
+                            state.tooltip_geometry = observation.geometry_revision;
+                            state.model_changed |= changed | help_changed;
+                            state.dirty |= changed | help_changed;
                         }
                     }
                 }
             }
-            let changed = state.app.poll();
+            let changed = state.app.poll() | if state.app.tooltips() && state.tooltip.active() {
+                match monotonic_ms() { Ok(now) => state.tooltip.tick(now), Err(_) => state.tooltip.cancel() }
+            } else { false };
             state.model_changed |= changed;
             state.dirty |= changed;
             if state.visible && state.dirty && state.current.revision != 0 {
                 let _ = ui_view_invalidate(&state.current);
             }
-            if let Some(interval) = state
-                .app
-                .poll_interval_us()
-                .or(state.dirty.then_some(50_000))
-            {
+            let tooltip_interval = if state.tooltip.active() {
+                monotonic_ms().ok().and_then(|now| state.tooltip.interval_us(now))
+            } else { None };
+            if let Some(interval) = state.app.poll_interval_us().into_iter()
+                .chain(tooltip_interval).chain(state.dirty.then_some(50_000)).min() {
                 mode = ReceiveMode::Timed {
                     timeout_us: interval.clamp(1, 200_000),
                 };
@@ -145,43 +153,72 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 }
                 // SAFETY: run's process-wide guard uniquely owns WIRE forever.
                 let wire = unsafe { &mut *WIRE.0.get() };
-                let len = state
-                    .app
-                    .render(wire)
-                    .map_err(|error| log_present_failure(app_id, "render", &error))
-                    .ok()
-                    .filter(|len| *len > 0 && *len <= wire.len());
+                let offer = if SURFACES {
+                    match state.window.frame_offer_with(
+                        &request,
+                        app_id,
+                        owner,
+                        |req, bytes, receipt| unsafe {
+                            crate::surface::transition(req, bytes, receipt)
+                        },
+                    ) {
+                        Ok(offer) => Some(offer),
+                        Err(error) => {
+                            log_present_failure(app_id, "offer", &error);
+                            if matches!(
+                                error,
+                                crate::surface::PublishError::Receipt
+                                    | crate::surface::PublishError::Cleanup { .. }
+                            ) {
+                                process_exit(57);
+                            }
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+                let len = if let Some(offer) = offer.as_ref() {
+                    Some(super::render_offered(&mut state.app, offer, wire))
+                } else if !SURFACES {
+                    Some(state.app.render(wire))
+                } else {
+                    None
+                }
+                .and_then(|result| {
+                    result
+                        .map_err(|error| log_present_failure(app_id, "render", &error))
+                        .ok()
+                })
+                .filter(|len| *len > 0 && *len <= wire.len());
+                let len = len.and_then(|len| {
+                    if state.app.tooltips() && state.tooltip.active() {
+                        if let Some(offer) = offer.as_ref() {
+                            return RASTER.prepare_tooltips(wire, len, offer.geometry.content.width,
+                                offer.geometry.content.height, &mut state.tooltip)
+                                .map_err(|e| log_present_failure(app_id, "tooltip", &e)).ok();
+                        }
+                    }
+                    Some(len)
+                });
                 let sealed = if SURFACES {
                     len.and_then(|len| {
-                        let result = state
-                            .window
-                            .frame_offer_with(
-                                &request,
-                                app_id,
-                                owner,
-                                |req, bytes, receipt| unsafe {
-                                    crate::surface::transition(req, bytes, receipt)
-                                },
-                            )
-                            .map_err(RasterError::Publish)
-                            .and_then(|offer| {
-                                RASTER.publish_with_images(
-                                    offer,
-                                    &wire[..len],
-                                    state.app.images(),
-                                    |req, bytes, receipt| unsafe {
-                                        crate::surface::transition(req, bytes, receipt)
-                                    },
-                                    || {
-                                        let code = scheduler_yield();
-                                        if code == SYSCALL_OK {
-                                            Ok(())
-                                        } else {
-                                            Err(code)
-                                        }
-                                    },
-                                )
-                            });
+                        let result = RASTER.publish_with_images(
+                            offer?,
+                            &wire[..len],
+                            state.app.images(),
+                            |req, bytes, receipt| unsafe {
+                                crate::surface::transition(req, bytes, receipt)
+                            },
+                            || {
+                                let code = scheduler_yield();
+                                if code == SYSCALL_OK {
+                                    Ok(())
+                                } else {
+                                    Err(code)
+                                }
+                            },
+                        );
                         if let Err(error) = &result {
                             log_present_failure(app_id, "raster", error);
                         }
@@ -353,6 +390,8 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                                     model_changed: false,
                                     visible: true,
                                     next_observation: 0,
+                                    tooltip: osaiku_ui::tooltip::State::EMPTY,
+                                    tooltip_geometry: 0,
                                 };
                                 // SAFETY: private just-mapped page, no aliases; the handle
                                 // remains outside it and the SDK checks metadata before access.
@@ -398,7 +437,19 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                                     && (event.target == state.current
                                         || event.target == state.previous)
                                 {
-                                    changed |= state.app.event(&event);
+                                    if state.app.tooltips() {
+                                        changed |= match monotonic_ms() { Ok(now) => state.tooltip.event(&event, now),
+                                            Err(_) => state.tooltip.cancel() };
+                                    }
+                                    if event.kind != osaiku_ui::input::HOVER {
+                                        // Help activation belongs to the SDK. Preserve keyboard
+                                        // focus in the app without dispatching a business action.
+                                        let event = if event.kind == osaiku_ui::input::ACTIVATE
+                                            && event.action == osaiku_ui::tooltip::ACTION {
+                                            osaiku_ui::input::Event { kind: osaiku_ui::input::FOCUS, ..event }
+                                        } else { event };
+                                        changed |= state.app.event(&event);
+                                    }
                                 }
                             }
                             let response = state.window.query(&command, changed);

@@ -23,10 +23,12 @@ pub mod paint;
 pub mod raster;
 pub mod report;
 mod shape;
+pub mod slider;
 pub mod surface;
 pub mod text_atlas;
 pub mod text_model;
 pub mod theme;
+pub mod tooltip;
 pub mod tree_view;
 pub mod virtual_grid;
 pub mod virtual_list;
@@ -90,6 +92,12 @@ pub enum Kind {
     /// `ui-popup-menu`: a container drawn above the rest of the document at
     /// an anchor point, outside its parent's flow (see `Node::popup_anchor`).
     Popup = 13,
+    /// `ui-slider`: a horizontal value control. A press or drag sends its
+    /// position as an `input::VALUE` event; the application answers with
+    /// `bind:value`, so the thumb shows the value it accepted.
+    Slider = 14,
+    /// A help icon with a bounded explanation, painted above the document.
+    Tooltip = 15,
 }
 impl Kind {
     pub fn from_byte(value: u8) -> Option<Self> {
@@ -108,6 +116,8 @@ impl Kind {
             11 => Self::VirtualList,
             12 => Self::Template,
             13 => Self::Popup,
+            14 => Self::Slider,
+            15 => Self::Tooltip,
             _ => return None,
         })
     }
@@ -141,6 +151,7 @@ pub enum Role {
     Separator = 11,
     Presentation = 12,
     TextBox = 13,
+    Slider = 14,
 }
 impl Role {
     pub fn from_byte(value: u8) -> Option<Self> {
@@ -159,6 +170,7 @@ impl Role {
             11 => Self::Separator,
             12 => Self::Presentation,
             13 => Self::TextBox,
+            14 => Self::Slider,
             _ => return None,
         })
     }
@@ -167,7 +179,7 @@ impl Role {
             Kind::Container | Kind::Popup => matches!(self, Self::Group | Self::Navigation),
             Kind::VirtualList | Kind::Template => self == Self::Group,
             Kind::Text => matches!(self, Self::Text | Self::Heading),
-            Kind::Button => self == Self::Button,
+            Kind::Button | Kind::Tooltip => self == Self::Button,
             Kind::Table => self == Self::Table,
             Kind::Row => self == Self::Row,
             Kind::Cell => matches!(self, Self::Cell | Self::ColumnHeader),
@@ -176,6 +188,7 @@ impl Role {
             Kind::Separator => self == Self::Separator,
             Kind::Icon => self == Self::Presentation,
             Kind::TextInput => self == Self::TextBox,
+            Kind::Slider => self == Self::Slider,
         }
     }
 }
@@ -524,6 +537,9 @@ impl Document {
                 parent = self.nodes[parent as usize].parent;
             }
             if n.action != 0 && !catalog::actionable(n.kind) {
+                return Err(Error::Structure);
+            }
+            if (n.kind == Kind::Tooltip) != (n.action == tooltip::ACTION) {
                 return Err(Error::Structure);
             }
             if n.text_len as usize > MAX_LEAF_TEXT

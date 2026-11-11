@@ -25,7 +25,7 @@ impl Record {
                         | Status::ServiceTimeout
                         | Status::ClockFailure
                         | Status::NoProgress
-                ) && (((op::NEW..=op::DIAGNOSTICS).contains(&self.operation) || self.operation == op::OBSERVE)
+                ) && (((op::NEW..=op::DIAGNOSTICS).contains(&self.operation) || matches!(self.operation, op::OBSERVE | op::INPUT_CONFIGURED))
                 && self.operation != op::REPLY
                 // A clock fault can be detected while an established session is idle.
                 || self.operation == 0 && self.status == Status::ClockFailure))

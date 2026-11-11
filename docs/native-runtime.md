@@ -26,6 +26,16 @@ authority. Window identities arrive separately via `submitted`. The trait provid
 shutdown-readiness callback. One process owns one window session. State plus
 host metadata must fit one 4 KiB session page; an oversized type is refused.
 
+Applications that wrap text or realize virtual lists should implement
+`render_for_viewport(width, height, bytes)`. The dimensions come from the exact
+frame offer's **content** rectangle, after excluding window decorations. The
+runtime obtains the offer before rendering and reuses it for rasterization;
+publication still rejects stale geometry. `WindowState.width/height` describe
+the outer window and are unsuitable for calculating the list's scroll range.
+The default callback delegates to `render(bytes)`, keeping existing applications
+source-compatible. Accepted scroll ranges should be retained per `submitted`
+identity, just like other revision-dependent input data.
+
 The runtime authenticates initd, validates OPEN/QUERY and presentation identity,
 drains at most 16 events per query, and only delivers events naming the current
 or preceding accepted submission with its original owner/window/revision.

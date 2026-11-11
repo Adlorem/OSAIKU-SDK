@@ -111,3 +111,56 @@ fn map_does_not_authorize_objects_outside_the_published_inventory() {
     map.len = u64::MAX;
     assert!(!map.valid_for(&v, &d));
 }
+
+#[test]
+fn retired_model_offer_is_refused_without_relaxing_inspect() {
+    use osaiku_runtime::{file_manager::*, files};
+    let mut document = osaiku_ui::Document::EMPTY;
+    document.len = 1;
+    document.nodes[0].id = 7;
+    let mut map = Map::EMPTY;
+    map.push(Binding {
+        operations: [action::CHOOSE_MODEL, 0, 0],
+        ..receipt().binding
+    });
+    let mut view = View {
+        magic: MAGIC,
+        generation: 1,
+        parent: files::ROOT,
+        count: 1,
+        total: 1,
+        selected: 23,
+        ..View::EMPTY
+    };
+    view.rows[0] = Row {
+        object: 23,
+        version: 9,
+        kind: 1,
+        name_len: 1,
+        ..Row::EMPTY
+    };
+    view.rows[0].name[0] = b'a';
+    for kind in [1, 2, 3] {
+        view.rows[0].kind = kind;
+        assert!(!map.valid_for(&view, &document));
+        map.entries[0].operations[0] = action::INSPECT;
+        assert_eq!(map.valid_for(&view, &document), kind == 3);
+        map.entries[0].operations[0] = action::CHOOSE_MODEL;
+    }
+    for change in 0..5 {
+        let mut changed = view;
+        match change {
+            0 => changed.selected = 0,
+            1 => changed.rows[0].version += 1,
+            2 => {
+                changed.location.port = 19;
+                changed.location.attachment = 7;
+            }
+            3 => map.entries[0].flags = SOURCE,
+            _ => map.entries[0].object += 1,
+        }
+        assert!(!map.valid_for(&changed, &document));
+        map.entries[0].flags = 0;
+        map.entries[0].object = 23;
+    }
+}

@@ -23,6 +23,8 @@ tr:selected { background-color: theme(selected); border-radius: 8px; }
 td { vertical-align: middle; }
 th { vertical-align: middle; }
 ui-value-bar { height: 8px; border-radius: 4px; background-color: theme(track); color: theme(accent); }
+ui-slider { height: 18px; color: theme(accent); }
+ui-tooltip { width:24px; height:24px; font-size:14px; text-align:center; vertical-align:middle; color:theme(muted); border-radius:12px; border-width:1px; border-color:theme(line); }
 :focus { color: theme(accent); }
 :disabled { color: theme(muted); }
 .toolbar { border-width: 0 0 1px 0; border-color: theme(line); }

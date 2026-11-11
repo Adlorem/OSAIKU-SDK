@@ -597,7 +597,7 @@ impl Publication {
                 .checked_add(e.label_len as usize)
                 .ok_or(Refusal::Bounds)?;
             if e.id == 0
-                || e.role > crate::Role::TextBox as u32
+                || e.role > crate::Role::Slider as u32
                 || e.state & !STATE_MASK != 0
                 || e.label_len as usize > MAX_LABEL
                 || labels.get(start..end).is_none()

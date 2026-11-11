@@ -228,6 +228,9 @@ fn compile_view(markup: &str, css: &str, defaults: &str) -> Result<Document> {
             ..Node::EMPTY
         };
         n.role = catalog::component(tag).expect("validated component").role;
+        if kind == Kind::Tooltip {
+            n.action = crate::tooltip::ACTION;
+        }
         if kind == Kind::Popup {
             // Anchored at the viewport origin until the host sets its point.
             n.set_popup_anchor(0, 0);
@@ -326,9 +329,9 @@ fn compile_view(markup: &str, css: &str, defaults: &str) -> Result<Document> {
                 }
                 "action" => {
                     if !catalog::actionable(kind) {
-                        return Err(
-                            p.error("actions require a button, selectable row or text input")
-                        );
+                        return Err(p.error(
+                            "actions require a button, selectable row, text input or slider",
+                        ));
                     }
                     n.action = names.intern(&value, &p)?;
                 }
