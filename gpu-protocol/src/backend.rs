@@ -113,7 +113,9 @@ impl Message {
             op::RECEIVE if self.peer == Peer::default() && self.serial == 0 && self.length == 0 => {
                 ()
             }
-            op::RECEIVE_WAIT if self.peer == Peer::default() && self.serial <= 10 && self.length == 0 => {
+            op::RECEIVE_WAIT
+                if self.peer == Peer::default() && self.serial <= 10 && self.length == 0 =>
+            {
                 ()
             }
             op::REPLY if self.peer.valid() && self.serial != 0 && self.length != 0 => (),

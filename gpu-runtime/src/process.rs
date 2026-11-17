@@ -60,18 +60,30 @@ impl<T: Transport> Process<T> {
     pub fn heartbeat(&mut self) -> Result<(), isize> {
         self.send(op::HEARTBEAT, 0, 0)
     }
-    pub fn draining(&mut self)->Result<bool,isize>{
-        if self.failed{return Err(-5);}
-        let request=Message{operation:op::STATUS,..self.identity};
-        match self.transport.exchange(request){
-            Ok(reply) if reply.value<=1 && Message{value:0,..reply}==request => Ok(reply.value==1),
-            _=>{self.failed=true;Err(-5)}
+    pub fn draining(&mut self) -> Result<bool, isize> {
+        if self.failed {
+            return Err(-5);
+        }
+        let request = Message {
+            operation: op::STATUS,
+            ..self.identity
+        };
+        match self.transport.exchange(request) {
+            Ok(reply) if reply.value <= 1 && Message { value: 0, ..reply } == request => {
+                Ok(reply.value == 1)
+            }
+            _ => {
+                self.failed = true;
+                Err(-5)
+            }
         }
     }
     /// After actual engine stop, firmware restore and platform revocation.
-    pub fn stopped(&mut self)->Result<(),isize>{
-        if self.identity.role!=4{return Err(-8);}
-        self.send(op::STOPPED,0,0)
+    pub fn stopped(&mut self) -> Result<(), isize> {
+        if self.identity.role != 4 {
+            return Err(-8);
+        }
+        self.send(op::STOPPED, 0, 0)
     }
     /// # Safety
     /// Sole backend has stopped firmware GT/uC, verified unchanged display,
@@ -79,7 +91,9 @@ impl<T: Transport> Process<T> {
     /// CPU mapping. No HANDOFF was attempted and no DMA was allocated. This
     /// is terminal; report FAILURE afterwards, never resume GPU access.
     pub unsafe fn firmware_aborted(&mut self) -> Result<(), isize> {
-        if self.identity.role != 4 { return Err(-8); }
+        if self.identity.role != 4 {
+            return Err(-8);
+        }
         self.send(op::FIRMWARE_ABORTED, 0, 0)
     }
     /// Only the backend may report a fence actually observed in its hardware.

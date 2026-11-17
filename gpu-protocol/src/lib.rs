@@ -1,15 +1,15 @@
 #![no_std]
 //! Public GPU package descriptors. Decoding never grants device access.
 //! Wire records use explicit little-endian fields; no Rust pointers cross IPC.
-pub mod resources;
-pub mod control;
-pub mod channel;
 pub mod backend;
-pub mod render;
-pub mod compositor;
-pub mod scene;
-pub mod platform;
 pub mod buffer;
+pub mod channel;
+pub mod compositor;
+pub mod control;
+pub mod platform;
+pub mod render;
+pub mod resources;
+pub mod scene;
 
 pub const PACKAGE_BYTES: usize = 192;
 pub const BACKEND_COMPONENT: u16 = 4;
@@ -64,10 +64,19 @@ impl Budget {
     /// Existing workers include exited, unjoined slots. The control thread is
     /// always charged as well. This check cannot increase the process image or
     /// stack/TLS storage admitted by the loader.
-    pub fn admits_worker(self, occupied_workers: usize, stack_bytes: u64, tls_bytes: usize) -> bool {
-        occupied_workers.checked_add(1).is_some_and(|n| n < usize::from(self.threads))
-            && stack_bytes != 0 && stack_bytes <= u64::from(self.stack)
-            && tls_bytes != 0 && tls_bytes as u64 <= u64::from(self.tls)
+    pub fn admits_worker(
+        self,
+        occupied_workers: usize,
+        stack_bytes: u64,
+        tls_bytes: usize,
+    ) -> bool {
+        occupied_workers
+            .checked_add(1)
+            .is_some_and(|n| n < usize::from(self.threads))
+            && stack_bytes != 0
+            && stack_bytes <= u64::from(self.stack)
+            && tls_bytes != 0
+            && tls_bytes as u64 <= u64::from(self.tls)
     }
     fn decode(b: &[u8], backend: bool) -> Result<Self, Error> {
         zero(&b[28..32])?;

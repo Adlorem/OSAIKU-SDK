@@ -110,15 +110,26 @@ fn gathered_runs_are_checked_before_any_submission() {
 fn read_scatterlist_validates_all_ranges_and_output_before_io() {
     let l = Link::default();
     let mut c = Client::attach(l.clone(), geometry()).unwrap();
-    for runs in [vec![], vec![(0, 0)], vec![(0, 1), (1020, 1)], vec![(0, usize::MAX)],
-        vec![(0, 1); wire::MAX_SEGMENTS + 1]] {
+    for runs in [
+        vec![],
+        vec![(0, 0)],
+        vec![(0, 1), (1020, 1)],
+        vec![(0, usize::MAX)],
+        vec![(0, 1); wire::MAX_SEGMENTS + 1],
+    ] {
         assert_eq!(c.read_runs(&runs, &mut [0; 8192]), Err(Error::InvalidRange));
     }
     assert!(l.0.borrow().calls.is_empty());
     c.read_runs(&[(100, 1), (8, 1)], &mut [0; 8192]).unwrap();
-    assert_eq!(l.0.borrow().calls, [(wire::READ, 100, 4096), (wire::READ, 8, 4096)]);
+    assert_eq!(
+        l.0.borrow().calls,
+        [(wire::READ, 100, 4096), (wire::READ, 8, 4096)]
+    );
     l.0.borrow_mut().fail = Some(3);
-    assert_eq!(c.read_runs(&[(100, 1)], &mut [0; 4096]), Err(Error::Timeout));
+    assert_eq!(
+        c.read_runs(&[(100, 1)], &mut [0; 4096]),
+        Err(Error::Timeout)
+    );
     assert!(!c.live());
 }
 #[test]

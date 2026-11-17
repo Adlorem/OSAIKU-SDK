@@ -52,19 +52,45 @@ pub struct Facts {
     pub active_digest: [u8; 32],
 }
 impl Facts {
-    pub const EMPTY: Self = Self { version: VERSION, device: 0, connection: 0,
-        catalog: 0, policy: 0, installed: 0, selected: 0, active: 0, trial: 0,
-        failure: 0, flags: 0, backend: 0, renderer: 0, fence: 0, presents: 0,
-        memory_budget: 0, dma_budget: 0, renderer_budget: 0, publisher: [0;32],
-        package_id: [0;128], family: [0;64], selected_digest: [0;32], active_digest: [0;32] };
+    pub const EMPTY: Self = Self {
+        version: VERSION,
+        device: 0,
+        connection: 0,
+        catalog: 0,
+        policy: 0,
+        installed: 0,
+        selected: 0,
+        active: 0,
+        trial: 0,
+        failure: 0,
+        flags: 0,
+        backend: 0,
+        renderer: 0,
+        fence: 0,
+        presents: 0,
+        memory_budget: 0,
+        dma_budget: 0,
+        renderer_budget: 0,
+        publisher: [0; 32],
+        package_id: [0; 128],
+        family: [0; 64],
+        selected_digest: [0; 32],
+        active_digest: [0; 32],
+    };
     pub fn reason(&self) -> &'static str {
-        if self.flags & CONFLICT != 0 { return "Konflikt wybranych sterowników"; }
+        if self.flags & CONFLICT != 0 {
+            return "Konflikt wybranych sterowników";
+        }
         let failure = failure_reason(self.failure, self.flags & RESTART != 0);
-        if !failure.is_empty() { return failure; }
+        if !failure.is_empty() {
+            return failure;
+        }
         match () {
             _ if self.flags & GPU != 0 => "GPU",
             _ if self.trial != 0 => "Trwa próba GPU",
-            _ if self.selected != 0 && self.flags & BOOT_CPU != 0 => "CPU/GOP · sterownik wybrany; profil CPU blokuje uruchomienie",
+            _ if self.selected != 0 && self.flags & BOOT_CPU != 0 => {
+                "CPU/GOP · sterownik wybrany; profil CPU blokuje uruchomienie"
+            }
             _ if self.selected != 0 => "CPU/GOP · wybrana wersja oczekuje na restart",
             _ if self.installed != 0 => "CPU/GOP · brak wybranej wersji",
             _ => "CPU/GOP · brak zgodnego pakietu",
@@ -73,9 +99,16 @@ impl Facts {
 }
 #[cfg(target_os = "none")]
 pub fn query(index: u64) -> Result<Facts, isize> {
-    let mut facts=Facts::EMPTY; let result:isize;
-    unsafe { core::arch::asm!("int 0x80", inlateout("rax") super::SYSCALL as isize => result,
+    let mut facts = Facts::EMPTY;
+    let result: isize;
+    unsafe {
+        core::arch::asm!("int 0x80", inlateout("rax") super::SYSCALL as isize => result,
         in("rdi") index, in("rsi") &mut facts as *mut Facts, in("rdx") super::READ_GPU,
-        in("r8") 0u64, in("r9") 0u64); }
-    if result==0 && facts.version==VERSION { Ok(facts) } else { Err(result) }
+        in("r8") 0u64, in("r9") 0u64);
+    }
+    if result == 0 && facts.version == VERSION {
+        Ok(facts)
+    } else {
+        Err(result)
+    }
 }

@@ -84,12 +84,12 @@ fn sdk_gpu_revision_atomicity_context_recreation_and_explicit_cpu_recovery() {
                 if req.operation == NEGOTIATE {
                     let q = unsafe { data.as_mut_ptr().cast::<Negotiation>().read_unaligned() };
                     let device = [Device {
-                            id: 1,
-                            generation: if phase>=2 {2}else{1},
-                            integrated: true,
-                            capabilities: capability::UI,
-                            presentation_device: 1,
-                        }];
+                        id: 1,
+                        generation: if phase >= 2 { 2 } else { 1 },
+                        integrated: true,
+                        capabilities: capability::UI,
+                        presentation_device: 1,
+                    }];
                     let selected = q.resolve(if phase == -1 { &[] } else { &device }).unwrap();
                     gpu_selected = selected.renderer == 1;
                     unsafe {
@@ -126,7 +126,11 @@ fn sdk_gpu_revision_atomicity_context_recreation_and_explicit_cpu_recovery() {
             assert!(result.is_ok(), "{phase}: {result:?}");
         }
         if phase == -1 {
-            assert_eq!(DRAWS.load(Relaxed),0,"CPU policy must never call the renderer");
+            assert_eq!(
+                DRAWS.load(Relaxed),
+                0,
+                "CPU policy must never call the renderer"
+            );
             assert!(operations.contains(&UPLOAD));
             assert!(!operations.contains(&BEGIN_GPU));
         } else if phase < 3 {

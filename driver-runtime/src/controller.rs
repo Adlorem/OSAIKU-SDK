@@ -137,9 +137,12 @@ impl Request {
         if r.sequence == 0
             || r.generation == 0
             || !(1..=12).contains(&r.operation)
-            || usize::from(r.length) > if r.operation == request::TRANSFER {
-                crate::controller_io::XHCI_TRANSFER_BYTES
-            } else { 4096 }
+            || usize::from(r.length)
+                > if r.operation == request::TRANSFER {
+                    crate::controller_io::XHCI_TRANSFER_BYTES
+                } else {
+                    4096
+                }
         {
             return Err(Error::Range);
         }

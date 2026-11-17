@@ -73,7 +73,9 @@ impl HardwareMapping {
     pub fn handle(&self) -> Handle {
         self.handle
     }
-    pub fn dma_bytes(&self) -> u64 { self.profile.dma_pages * PAGE }
+    pub fn dma_bytes(&self) -> u64 {
+        self.profile.dma_pages * PAGE
+    }
     fn bytes(&self, dma: bool, offset: usize, bytes: usize) -> Result<u64, Error> {
         let base = if dma { self.dma } else { self.copy };
         let limit = if dma {
@@ -174,7 +176,10 @@ impl HardwareMapping {
         Ok(value)
     }
     pub fn write(&mut self, offset: u64, width: u64, value: u64) -> Result<(), Error> {
-        if !matches!(width, 1 | 4 | 8) || (width == 1 && value > u8::MAX as u64) || (width == 4 && value > u32::MAX as u64) {
+        if !matches!(width, 1 | 4 | 8)
+            || (width == 1 && value > u8::MAX as u64)
+            || (width == 4 && value > u32::MAX as u64)
+        {
             return Err(Error::Size);
         }
         let at = self.address(offset, width)?;

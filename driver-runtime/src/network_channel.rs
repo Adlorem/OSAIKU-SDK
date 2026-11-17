@@ -75,7 +75,7 @@ impl Wire {
         if &b[..8] != b"OL2CHAN1" {
             return Err(Error::Version);
         }
-        if b[74] > 1 || b[75]>1 || b[76..].iter().any(|n| *n != 0) {
+        if b[74] > 1 || b[75] > 1 || b[76..].iter().any(|n| *n != 0) {
             return Err(Error::Reserved);
         }
         let n = |i: usize| u64::from_le_bytes(b[8 + i * 8..16 + i * 8].try_into().unwrap());

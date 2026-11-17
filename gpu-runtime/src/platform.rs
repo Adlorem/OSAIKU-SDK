@@ -22,10 +22,16 @@ pub struct Info {
     pub dma_bits: u8,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Publication { pub data: u64, pub fence: u64 }
+pub struct Publication {
+    pub data: u64,
+    pub fence: u64,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PublishedSource {
-    pub opaque: u64, pub bytes: u64, pub fence: u64, pub kind: u64,
+    pub opaque: u64,
+    pub bytes: u64,
+    pub fence: u64,
+    pub kind: u64,
     pub peer: crate::protocol::backend::Peer,
 }
 #[derive(Debug)]
@@ -315,68 +321,260 @@ impl<T: Transport> Platform<T> {
         self.exchange(op::IRQ, &[u64::from(enable)], 1)
             .map(|r| r.args[0])
     }
-    pub fn display_snapshot(&mut self, peer:crate::protocol::backend::Peer, tokens:[u64;3])->Result<[u64;6],isize>{
-        if !self.ready||!peer.valid()||peer.device!=self.scope.device||peer.connection!=self.scope.connection
-            ||tokens.contains(&0)||tokens[0]==tokens[1]||tokens[0]==tokens[2]||tokens[1]==tokens[2]{return Err(-8);}
-        let r=self.exchange(op::DISPLAY_CONTROL,&[wire::display::SNAPSHOT,peer.client,peer.renderer,peer.session,peer.generation,tokens[0],tokens[1],tokens[2]],6)?;
-        if r.args[..3].iter().any(|s|!(1..=4).contains(s)){self.failed=true;return Err(-5);}
+    pub fn display_snapshot(
+        &mut self,
+        peer: crate::protocol::backend::Peer,
+        tokens: [u64; 3],
+    ) -> Result<[u64; 6], isize> {
+        if !self.ready
+            || !peer.valid()
+            || peer.device != self.scope.device
+            || peer.connection != self.scope.connection
+            || tokens.contains(&0)
+            || tokens[0] == tokens[1]
+            || tokens[0] == tokens[2]
+            || tokens[1] == tokens[2]
+        {
+            return Err(-8);
+        }
+        let r = self.exchange(
+            op::DISPLAY_CONTROL,
+            &[
+                wire::display::SNAPSHOT,
+                peer.client,
+                peer.renderer,
+                peer.session,
+                peer.generation,
+                tokens[0],
+                tokens[1],
+                tokens[2],
+            ],
+            6,
+        )?;
+        if r.args[..3].iter().any(|s| !(1..=4).contains(s)) {
+            self.failed = true;
+            return Err(-5);
+        }
         Ok(r.args[..6].try_into().unwrap())
     }
-    pub fn cursor_backing(&mut self,a:&Allocation)->Result<bool,isize>{
-        if !self.ready||a.scope!=self.scope||a.bytes()!=8*4096{return Err(-8);}
-        let r=self.exchange(op::DISPLAY_CONTROL,&[wire::display::CURSOR_BACKING,a.handle],1)?;
-        if r.args[0]>1{self.failed=true;return Err(-5);}Ok(r.args[0]==1)
+    pub fn cursor_backing(&mut self, a: &Allocation) -> Result<bool, isize> {
+        if !self.ready || a.scope != self.scope || a.bytes() != 8 * 4096 {
+            return Err(-8);
+        }
+        let r = self.exchange(
+            op::DISPLAY_CONTROL,
+            &[wire::display::CURSOR_BACKING, a.handle],
+            1,
+        )?;
+        if r.args[0] > 1 {
+            self.failed = true;
+            return Err(-5);
+        }
+        Ok(r.args[0] == 1)
     }
     /// # Safety
     /// All CPU writers and writable GPU aliases of this opaque object have
     /// retired. Backing stays pinned until publication_alive returns false,
     /// and imported read bindings retain their own separate hardware pins.
-    pub unsafe fn publish(&mut self, peer: crate::protocol::backend::Peer, opaque: u64, bytes: u64, fence: u64) -> Result<Publication, isize> {
-        if !self.ready || !peer.valid() || peer.device != self.scope.device || peer.connection != self.scope.connection { return Err(-8); }
-        let r = self.exchange(op::PUBLISH, &[opaque,peer.client,peer.renderer,peer.session,peer.generation,bytes,fence], 2)?;
-        if r.args[0] >> 63 != 1 || r.args[1] >> 63 != 1 || r.args[0] == r.args[1] { self.failed = true; return Err(-5); }
-        Ok(Publication { data:r.args[0], fence:r.args[1] })
+    pub unsafe fn publish(
+        &mut self,
+        peer: crate::protocol::backend::Peer,
+        opaque: u64,
+        bytes: u64,
+        fence: u64,
+    ) -> Result<Publication, isize> {
+        if !self.ready
+            || !peer.valid()
+            || peer.device != self.scope.device
+            || peer.connection != self.scope.connection
+        {
+            return Err(-8);
+        }
+        let r = self.exchange(
+            op::PUBLISH,
+            &[
+                opaque,
+                peer.client,
+                peer.renderer,
+                peer.session,
+                peer.generation,
+                bytes,
+                fence,
+            ],
+            2,
+        )?;
+        if r.args[0] >> 63 != 1 || r.args[1] >> 63 != 1 || r.args[0] == r.args[1] {
+            self.failed = true;
+            return Err(-5);
+        }
+        Ok(Publication {
+            data: r.args[0],
+            fence: r.args[1],
+        })
     }
-    pub fn publication_source(&mut self, peer: crate::protocol::backend::Peer, token:u64) -> Result<PublishedSource,isize> {
-        if !self.ready || !peer.valid() || token >> 63 != 1 { return Err(-8); }
-        let r = self.exchange(op::PUBLICATION_LOOKUP, &[token,peer.client,peer.renderer,peer.session,peer.generation], 8)?;
-        let a=r.args;
-        let origin=crate::protocol::backend::Peer{client:a[4],renderer:a[5],session:a[6],generation:a[7],device:self.scope.device,connection:self.scope.connection};
-        if a[..3].contains(&0) || a[1]%4096!=0 || !matches!(a[3],1|2) || !origin.valid(){self.failed=true;return Err(-5);}
-        Ok(PublishedSource{opaque:a[0],bytes:a[1],fence:a[2],kind:a[3],peer:origin})
+    pub fn publication_source(
+        &mut self,
+        peer: crate::protocol::backend::Peer,
+        token: u64,
+    ) -> Result<PublishedSource, isize> {
+        if !self.ready || !peer.valid() || token >> 63 != 1 {
+            return Err(-8);
+        }
+        let r = self.exchange(
+            op::PUBLICATION_LOOKUP,
+            &[
+                token,
+                peer.client,
+                peer.renderer,
+                peer.session,
+                peer.generation,
+            ],
+            8,
+        )?;
+        let a = r.args;
+        let origin = crate::protocol::backend::Peer {
+            client: a[4],
+            renderer: a[5],
+            session: a[6],
+            generation: a[7],
+            device: self.scope.device,
+            connection: self.scope.connection,
+        };
+        if a[..3].contains(&0) || a[1] % 4096 != 0 || !matches!(a[3], 1 | 2) || !origin.valid() {
+            self.failed = true;
+            return Err(-5);
+        }
+        Ok(PublishedSource {
+            opaque: a[0],
+            bytes: a[1],
+            fence: a[2],
+            kind: a[3],
+            peer: origin,
+        })
     }
-    pub fn drop_publication(&mut self, peer:crate::protocol::backend::Peer, token:u64)->Result<(),isize>{
-        if !self.ready || !peer.valid() || token>>63!=1{return Err(-8);}
-        self.exchange(op::PUBLICATION_DROP,&[token,peer.client,peer.renderer,peer.session,peer.generation],0).map(|_|())
+    pub fn drop_publication(
+        &mut self,
+        peer: crate::protocol::backend::Peer,
+        token: u64,
+    ) -> Result<(), isize> {
+        if !self.ready || !peer.valid() || token >> 63 != 1 {
+            return Err(-8);
+        }
+        self.exchange(
+            op::PUBLICATION_DROP,
+            &[
+                token,
+                peer.client,
+                peer.renderer,
+                peer.session,
+                peer.generation,
+            ],
+            0,
+        )
+        .map(|_| ())
     }
-    pub fn publication_alive(&mut self,opaque:u64)->Result<bool,isize>{
-        if !self.ready || opaque==0{return Err(-8);}
-        let r=self.exchange(op::PUBLICATION_ALIVE,&[opaque],1)?;
-        if r.args[0]>1{self.failed=true;return Err(-5);}Ok(r.args[0]!=0)
+    pub fn publication_alive(&mut self, opaque: u64) -> Result<bool, isize> {
+        if !self.ready || opaque == 0 {
+            return Err(-8);
+        }
+        let r = self.exchange(op::PUBLICATION_ALIVE, &[opaque], 1)?;
+        if r.args[0] > 1 {
+            self.failed = true;
+            return Err(-5);
+        }
+        Ok(r.args[0] != 0)
     }
     /// Backend display transaction: 1 register, 2 exclude GOP writers before
     /// flip, 3 observed flip/vblank/fence, 4 observed GOP restore, 5 release.
     /// # Safety
     /// Phases 3/4 require actual hardware retirement, never a queued command.
-    pub unsafe fn display(&mut self,phase:u64,peer:crate::protocol::backend::Peer,buffer:u64,serial:u64,fence:u64)->Result<(),isize>{
-        if !self.ready||!peer.valid()||peer.device!=self.scope.device||peer.connection!=self.scope.connection{return Err(-8);}
-        self.exchange(op::DISPLAY,&[phase,peer.client,peer.renderer,peer.session,peer.generation,buffer,serial,fence],0).map(|_|())
+    pub unsafe fn display(
+        &mut self,
+        phase: u64,
+        peer: crate::protocol::backend::Peer,
+        buffer: u64,
+        serial: u64,
+        fence: u64,
+    ) -> Result<(), isize> {
+        if !self.ready
+            || !peer.valid()
+            || peer.device != self.scope.device
+            || peer.connection != self.scope.connection
+        {
+            return Err(-8);
+        }
+        self.exchange(
+            op::DISPLAY,
+            &[
+                phase,
+                peer.client,
+                peer.renderer,
+                peer.session,
+                peer.generation,
+                buffer,
+                serial,
+                fence,
+            ],
+            0,
+        )
+        .map(|_| ())
     }
     /// Versioned kernel display owner. No physical address or MMIO receipt is
     /// accepted from the backend; page lists refer to broker allocation tokens.
-    pub fn display_control(&mut self, action:u64, peer:Option<crate::protocol::backend::Peer>, buffer:u64, value:u64)->Result<[u64;16],isize>{
+    pub fn display_control(
+        &mut self,
+        action: u64,
+        peer: Option<crate::protocol::backend::Peer>,
+        buffer: u64,
+        value: u64,
+    ) -> Result<[u64; 16], isize> {
         use wire::display;
-        let mut args=[0;8]; args[0]=action;
-        if action>display::INITIALIZE {
-            let p=peer.filter(|p|p.valid()&&p.device==self.scope.device&&p.connection==self.scope.connection).ok_or(-8isize)?;
-            args[1..6].copy_from_slice(&[p.client,p.renderer,p.session,p.generation,buffer]);
-            args[6]=value;
+        let mut args = [0; 8];
+        args[0] = action;
+        if action > display::INITIALIZE {
+            let p = peer
+                .filter(|p| {
+                    p.valid()
+                        && p.device == self.scope.device
+                        && p.connection == self.scope.connection
+                })
+                .ok_or(-8isize)?;
+            args[1..6].copy_from_slice(&[p.client, p.renderer, p.session, p.generation, buffer]);
+            args[6] = value;
         }
-        self.exchange(op::DISPLAY_CONTROL,&args,16).map(|m|m.args)
+        self.exchange(op::DISPLAY_CONTROL, &args, 16)
+            .map(|m| m.args)
     }
-    pub fn display_pages(&mut self, peer:crate::protocol::backend::Peer, buffer:u64, offset:u64, allocation:&Allocation)->Result<(),isize>{
-        if !self.ready || allocation.scope!=self.scope || !peer.valid() || peer.device!=self.scope.device || peer.connection!=self.scope.connection{return Err(-8);}
-        self.exchange(op::DISPLAY_CONTROL,&[wire::display::PAGES,peer.client,peer.renderer,peer.session,peer.generation,buffer,offset,allocation.handle],0).map(|_|())
+    pub fn display_pages(
+        &mut self,
+        peer: crate::protocol::backend::Peer,
+        buffer: u64,
+        offset: u64,
+        allocation: &Allocation,
+    ) -> Result<(), isize> {
+        if !self.ready
+            || allocation.scope != self.scope
+            || !peer.valid()
+            || peer.device != self.scope.device
+            || peer.connection != self.scope.connection
+        {
+            return Err(-8);
+        }
+        self.exchange(
+            op::DISPLAY_CONTROL,
+            &[
+                wire::display::PAGES,
+                peer.client,
+                peer.renderer,
+                peer.session,
+                peer.generation,
+                buffer,
+                offset,
+                allocation.handle,
+            ],
+            0,
+        )
+        .map(|_| ())
     }
     pub fn revoke_step(&mut self) -> Result<bool, isize> {
         let r = self.exchange(op::REVOKE, &[], 1)?;

@@ -57,14 +57,27 @@ pub struct Draw {
     pub length: u64,
 }
 impl Draw {
-    pub fn control(self) -> bool { matches!(self.operation, 1 | 2 | 7 | 8 | 10) }
+    pub fn control(self) -> bool {
+        matches!(self.operation, 1 | 2 | 7 | 8 | 10)
+    }
     pub fn validate(self, width: u32, height: u32) -> Result<(), Error> {
         viewport(width, height)?;
         if self.control() {
-            if self.color != 0 || self.clip != [0; 4] || self.shape != [0; 4]
-                || self.params != [0; 8] || self.asset != NO_ASSET || self.offset != 0 || self.length != 0
-                || (self.operation == 1 && (width > 4096 || height > 4096 || self.rect != [0, 0, width as i32, height as i32]))
-                || (self.operation != 1 && self.rect != [0; 4]) { return Err(Error::Operation); }
+            if self.color != 0
+                || self.clip != [0; 4]
+                || self.shape != [0; 4]
+                || self.params != [0; 8]
+                || self.asset != NO_ASSET
+                || self.offset != 0
+                || self.length != 0
+                || (self.operation == 1
+                    && (width > 4096
+                        || height > 4096
+                        || self.rect != [0, 0, width as i32, height as i32]))
+                || (self.operation != 1 && self.rect != [0; 4])
+            {
+                return Err(Error::Operation);
+            }
             return Ok(());
         }
         if !(3..=6).contains(&self.operation) {
@@ -225,7 +238,9 @@ impl<'a> Batch<'a> {
             count,
         };
         for i in 0..count {
-            if count != 1 && result.draw(i).ok_or(Error::Length)??.control() { return Err(Error::Operation); }
+            if count != 1 && result.draw(i).ok_or(Error::Length)??.control() {
+                return Err(Error::Operation);
+            }
             result
                 .draw(i)
                 .ok_or(Error::Length)??
@@ -237,7 +252,10 @@ impl<'a> Batch<'a> {
         self.scope
     }
     pub fn control(self) -> Option<u32> {
-        self.draw(0)?.ok().filter(|d| self.count == 1 && d.control()).map(|d| d.operation)
+        self.draw(0)?
+            .ok()
+            .filter(|d| self.count == 1 && d.control())
+            .map(|d| d.operation)
     }
     pub fn viewport(self) -> (u32, u32) {
         (self.width, self.height)
@@ -276,7 +294,9 @@ pub fn encode(
         return Err(Error::Length);
     }
     for draw in draws {
-        if draws.len() != 1 && draw.control() { return Err(Error::Operation); }
+        if draws.len() != 1 && draw.control() {
+            return Err(Error::Operation);
+        }
         draw.validate(width, height)?;
     }
     out[..length].fill(0);

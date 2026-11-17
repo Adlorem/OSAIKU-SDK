@@ -63,7 +63,9 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
         let mut mode = ReceiveMode::Blocking;
         if let Some(page) = session.as_mut() {
             let state = page.value_mut();
-            if state.current.epoch != 0 && (state.app.observe_window_state() || state.app.tooltips()) {
+            if state.current.epoch != 0
+                && (state.app.observe_window_state() || state.app.tooltips())
+            {
                 if let Ok(now) = monotonic_ms() {
                     if now >= state.next_observation {
                         state.next_observation = now.saturating_add(200);
@@ -82,9 +84,14 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                         ) {
                             state.visible = observation.visible != 0;
                             let changed = state.app.window_state(observation);
-                            let help_changed = if observation.geometry_revision != state.tooltip_geometry || !state.visible {
+                            let help_changed = if observation.geometry_revision
+                                != state.tooltip_geometry
+                                || !state.visible
+                            {
                                 state.tooltip.cancel()
-                            } else { false };
+                            } else {
+                                false
+                            };
                             state.tooltip_geometry = observation.geometry_revision;
                             state.model_changed |= changed | help_changed;
                             state.dirty |= changed | help_changed;
@@ -92,19 +99,35 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                     }
                 }
             }
-            let changed = state.app.poll() | if state.app.tooltips() && state.tooltip.active() {
-                match monotonic_ms() { Ok(now) => state.tooltip.tick(now), Err(_) => state.tooltip.cancel() }
-            } else { false };
+            let changed = state.app.poll()
+                | if state.app.tooltips() && state.tooltip.active() {
+                    match monotonic_ms() {
+                        Ok(now) => state.tooltip.tick(now),
+                        Err(_) => state.tooltip.cancel(),
+                    }
+                } else {
+                    false
+                };
             state.model_changed |= changed;
             state.dirty |= changed;
             if state.visible && state.dirty && state.current.revision != 0 {
                 let _ = ui_view_invalidate(&state.current);
             }
             let tooltip_interval = if state.tooltip.active() {
-                monotonic_ms().ok().and_then(|now| state.tooltip.interval_us(now))
-            } else { None };
-            if let Some(interval) = state.app.poll_interval_us().into_iter()
-                .chain(tooltip_interval).chain(state.dirty.then_some(50_000)).min() {
+                monotonic_ms()
+                    .ok()
+                    .and_then(|now| state.tooltip.interval_us(now))
+            } else {
+                None
+            };
+            if let Some(interval) = state
+                .app
+                .poll_interval_us()
+                .into_iter()
+                .chain(tooltip_interval)
+                .chain(state.dirty.then_some(50_000))
+                .min()
+            {
                 mode = ReceiveMode::Timed {
                     timeout_us: interval.clamp(1, 200_000),
                 };
@@ -179,7 +202,9 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 } else {
                     None
                 };
-                if offer.is_some() || !SURFACES { decline_code.set(2000); }
+                if offer.is_some() || !SURFACES {
+                    decline_code.set(2000);
+                }
                 let len = if let Some(offer) = offer.as_ref() {
                     Some(super::render_offered(&mut state.app, offer, wire))
                 } else if !SURFACES {
@@ -194,16 +219,25 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 })
                 .filter(|len| {
                     let valid = *len > 0 && *len <= wire.len();
-                    if !valid { decline_code.set(3000); }
+                    if !valid {
+                        decline_code.set(3000);
+                    }
                     valid
                 });
                 let len = len.and_then(|len| {
                     if state.app.tooltips() && state.tooltip.active() {
                         if let Some(offer) = offer.as_ref() {
                             decline_code.set(4000);
-                            return RASTER.prepare_tooltips(wire, len, offer.geometry.content.width,
-                                offer.geometry.content.height, &mut state.tooltip)
-                                .map_err(|e| log_present_failure(app_id, "tooltip", &e)).ok();
+                            return RASTER
+                                .prepare_tooltips(
+                                    wire,
+                                    len,
+                                    offer.geometry.content.width,
+                                    offer.geometry.content.height,
+                                    &mut state.tooltip,
+                                )
+                                .map_err(|e| log_present_failure(app_id, "tooltip", &e))
+                                .ok();
                         }
                     }
                     Some(len)
@@ -305,7 +339,13 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                     send(sender, &status.encode(), false, 1, request.request_id);
                 } else {
                     state.app.submission_refused();
-                    send(sender, &ui_content_declined_with_code(&request, decline_code.get()), false, 1, request.request_id);
+                    send(
+                        sender,
+                        &ui_content_declined_with_code(&request, decline_code.get()),
+                        false,
+                        1,
+                        request.request_id,
+                    );
                 }
             }
             ApplicationMessage::Teardown(payload) => {
@@ -353,7 +393,13 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                     }
                 }
                 .unwrap_or_else(|| process_exit(54));
-                send(sender, &receipt.encode(), true, 2, notice.as_ref().map_or(0, |n|n.notice_id));
+                send(
+                    sender,
+                    &receipt.encode(),
+                    true,
+                    2,
+                    notice.as_ref().map_or(0, |n| n.notice_id),
+                );
             }
             ApplicationMessage::Other(payload) if payload.len() == DOCUMENT_EDITOR_COMMAND_SIZE => {
                 let command = WindowCommand::decode(payload).unwrap_or_else(|| process_exit(31));
@@ -448,16 +494,24 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                                         || event.target == state.previous)
                                 {
                                     if state.app.tooltips() {
-                                        changed |= match monotonic_ms() { Ok(now) => state.tooltip.event(&event, now),
-                                            Err(_) => state.tooltip.cancel() };
+                                        changed |= match monotonic_ms() {
+                                            Ok(now) => state.tooltip.event(&event, now),
+                                            Err(_) => state.tooltip.cancel(),
+                                        };
                                     }
                                     if event.kind != osaiku_ui::input::HOVER {
                                         // Help activation belongs to the SDK. Preserve keyboard
                                         // focus in the app without dispatching a business action.
                                         let event = if event.kind == osaiku_ui::input::ACTIVATE
-                                            && event.action == osaiku_ui::tooltip::ACTION {
-                                            osaiku_ui::input::Event { kind: osaiku_ui::input::FOCUS, ..event }
-                                        } else { event };
+                                            && event.action == osaiku_ui::tooltip::ACTION
+                                        {
+                                            osaiku_ui::input::Event {
+                                                kind: osaiku_ui::input::FOCUS,
+                                                ..event
+                                            }
+                                        } else {
+                                            event
+                                        };
                                         changed |= state.app.event(&event);
                                     }
                                 }
@@ -485,7 +539,13 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                         reason,
                     )
                 };
-                send(sender, &response.encode(), false, 0x100 + u64::from(command.command_kind), command.command_id);
+                send(
+                    sender,
+                    &response.encode(),
+                    false,
+                    0x100 + u64::from(command.command_kind),
+                    command.command_id,
+                );
             }
             ApplicationMessage::Other(payload) => {
                 let mut response = [0; MAX_IPC_MESSAGE_LEN];
@@ -518,13 +578,22 @@ fn log_present_failure(app: u64, stage: &str, error: &impl core::fmt::Debug) {
     }
 }
 
-fn send(target: ProcessEndpoint, bytes: &[u8], handoff: bool, kind:u64, id:u64) {
-    let report = crate::ipc::send_with_backpressure_report(|| unsafe {crate::reply_slot::send_application_with_metadata(target, bytes,kind,id)}, scheduler_yield, monotonic_ms);
-    if report.status == crate::reply_slot::CLOSED {return;}
+fn send(target: ProcessEndpoint, bytes: &[u8], handoff: bool, kind: u64, id: u64) {
+    let report = crate::ipc::send_with_backpressure_report(
+        || unsafe { crate::reply_slot::send_application_with_metadata(target, bytes, kind, id) },
+        scheduler_yield,
+        monotonic_ms,
+    );
+    if report.status == crate::reply_slot::CLOSED {
+        return;
+    }
     if report.status != SYSCALL_OK {
         for part in 0..2 {
             let mut line = osaiku_ui::text_model::Text::EMPTY;
-            if report.diagnostic(&mut line,part,target.encode(),kind,id).is_ok() {
+            if report
+                .diagnostic(&mut line, part, target.encode(), kind, id)
+                .is_ok()
+            {
                 let _ = crate::log_write(line.as_str());
             }
         }

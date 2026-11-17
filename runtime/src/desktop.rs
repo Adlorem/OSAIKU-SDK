@@ -5,17 +5,26 @@ pub use crate::{
     ipc::ReplyError, log_write, process_exit, scheduler_yield, ui_view_invalidate,
     yield_to as yield_to_endpoint,
 };
-pub fn ipc_send_bytes_to(peer:ProcessEndpoint,bytes:&[u8])->isize {
-    unsafe {crate::reply_slot::send_application(peer,bytes)}
+pub fn ipc_send_bytes_to(peer: ProcessEndpoint, bytes: &[u8]) -> isize {
+    unsafe { crate::reply_slot::send_application(peer, bytes) }
 }
 pub use ipc_send_bytes_to as ipc_send_reply_to;
-pub fn ipc_send_reply_with_metadata(peer:ProcessEndpoint,bytes:&[u8],kind:u64,id:u64)->isize {
-    unsafe {crate::reply_slot::send_application_with_metadata(peer,bytes,kind,id)}
+pub fn ipc_send_reply_with_metadata(
+    peer: ProcessEndpoint,
+    bytes: &[u8],
+    kind: u64,
+    id: u64,
+) -> isize {
+    unsafe { crate::reply_slot::send_application_with_metadata(peer, bytes, kind, id) }
 }
 
-pub fn ipc_reply_and_yield(peer:ProcessEndpoint,bytes:&[u8])->Result<(),ReplyError> {
-    let id=crate::lifecycle::WindowSessionTeardownReceipt::decode(bytes).map_or(0,|r|r.notice_id);
-    crate::ipc::send_then_handoff(||ipc_send_reply_with_metadata(peer,bytes,2,id),||crate::yield_to(peer))
+pub fn ipc_reply_and_yield(peer: ProcessEndpoint, bytes: &[u8]) -> Result<(), ReplyError> {
+    let id =
+        crate::lifecycle::WindowSessionTeardownReceipt::decode(bytes).map_or(0, |r| r.notice_id);
+    crate::ipc::send_then_handoff(
+        || ipc_send_reply_with_metadata(peer, bytes, 2, id),
+        || crate::yield_to(peer),
+    )
 }
 pub fn process_self_endpoint(out: &mut ProcessEndpoint) -> isize {
     match crate::process_self() {

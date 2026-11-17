@@ -160,9 +160,14 @@ impl Message {
         let used = match self.operation {
             op::DISPLAY_CONTROL => {
                 let a = self.args;
-                if a[0] > display::CURSOR_BACKING { return Err(super::Error::Version); }
-                if a[0]==display::CURSOR_BACKING {
-                    if a[1]==0{return Err(super::Error::Identity);} 2
+                if a[0] > display::CURSOR_BACKING {
+                    return Err(super::Error::Version);
+                }
+                if a[0] == display::CURSOR_BACKING {
+                    if a[1] == 0 {
+                        return Err(super::Error::Identity);
+                    }
+                    2
                 } else if a[0] <= display::INITIALIZE {
                     1
                 } else {
@@ -171,21 +176,31 @@ impl Message {
                     }
                     match a[0] {
                         display::SNAPSHOT => {
-                            if a[5..8].contains(&0) || a[5]==a[6] || a[5]==a[7] || a[6]==a[7] {
+                            if a[5..8].contains(&0) || a[5] == a[6] || a[5] == a[7] || a[6] == a[7]
+                            {
                                 return Err(super::Error::Identity);
                             }
                             8
                         }
                         display::PAGES => {
-                            if a[7] == 0 { return Err(super::Error::Identity); }
+                            if a[7] == 0 {
+                                return Err(super::Error::Identity);
+                            }
                             8
                         }
-                        display::PRESENT | display::WAIT | display::ENQUEUE | display::WAIT_QUEUED => {
-                            if a[6] == 0 { return Err(super::Error::Identity); }
+                        display::PRESENT
+                        | display::WAIT
+                        | display::ENQUEUE
+                        | display::WAIT_QUEUED => {
+                            if a[6] == 0 {
+                                return Err(super::Error::Identity);
+                            }
                             7
                         }
                         display::RESTORE => {
-                            if a[5] != 0 { return Err(super::Error::Reserved); }
+                            if a[5] != 0 {
+                                return Err(super::Error::Reserved);
+                            }
                             6
                         }
                         _ => 6,
@@ -193,22 +208,34 @@ impl Message {
                 }
             }
             op::DISPLAY => {
-                let a=self.args;
-                if !(1..=5).contains(&a[0]) || a[1..5].contains(&0)
-                    || (a[0]!=4&&a[5]==0) || (a[0]==4&&a[5..8]!=[0;3])
-                    || (a[0]==3&&(a[6]==0||a[7]==0)) || (a[0]!=3&&a[6..8]!=[0;2]) { return Err(super::Error::Identity); }
+                let a = self.args;
+                if !(1..=5).contains(&a[0])
+                    || a[1..5].contains(&0)
+                    || (a[0] != 4 && a[5] == 0)
+                    || (a[0] == 4 && a[5..8] != [0; 3])
+                    || (a[0] == 3 && (a[6] == 0 || a[7] == 0))
+                    || (a[0] != 3 && a[6..8] != [0; 2])
+                {
+                    return Err(super::Error::Identity);
+                }
                 8
             }
             op::PUBLISH => {
-                if self.args[..7].contains(&0) || self.args[5] % PAGE != 0 { return Err(super::Error::Identity); }
+                if self.args[..7].contains(&0) || self.args[5] % PAGE != 0 {
+                    return Err(super::Error::Identity);
+                }
                 7
             }
             op::PUBLICATION_LOOKUP | op::PUBLICATION_DROP => {
-                if self.args[..5].contains(&0) { return Err(super::Error::Identity); }
+                if self.args[..5].contains(&0) {
+                    return Err(super::Error::Identity);
+                }
                 5
             }
             op::PUBLICATION_ALIVE => {
-                if self.args[0] == 0 { return Err(super::Error::Identity); }
+                if self.args[0] == 0 {
+                    return Err(super::Error::Identity);
+                }
                 1
             }
             op::INFO | op::REVOKE | op::RESERVATION => 0,

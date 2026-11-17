@@ -174,6 +174,16 @@ fn borrowed_workspace_scrubs_partial_payload_on_transport_or_correlation_failure
 
 #[test]
 fn retired_model_picker_is_refused() {
-    assert!(!Request{version:2,operation:OPEN_MODEL,..open()}.canonical());
-    assert!(!Request{version:1,operation:OPEN_MODEL,..open()}.canonical());
+    assert!(!Request {
+        version: 2,
+        operation: OPEN_MODEL,
+        ..open()
+    }
+    .canonical());
+    assert!(!Request {
+        version: 1,
+        operation: OPEN_MODEL,
+        ..open()
+    }
+    .canonical());
 }

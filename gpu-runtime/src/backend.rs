@@ -63,14 +63,34 @@ impl<T: Transport> Client<T> {
     /// One kernel call, completed only by the matching backend reply. BUSY
     /// means no admission; an admitted request is never replayed by this API.
     pub fn call(&mut self, packet: &mut [u8], bytes: usize) -> Result<usize, isize> {
-        if self.pending.is_some() { return Err(BUSY); }
-        if bytes == 0 || bytes > wire::MAX_PAYLOAD || packet.len() > wire::MAX_BYTES
-            || bytes + wire::HEADER > packet.len() { return Err(-1); }
-        put(packet, Message { peer:self.peer, length:bytes as u64, ..Message::new(op::CALL) })?;
-        let r=exchange(&mut self.transport,&mut self.failed,packet)?;
-        if r.operation!=op::CALL || r.peer!=self.peer || r.serial==0 || r.state!=state::DONE
-            || r.length==0 || r.length as usize>packet.len()-wire::HEADER {
-            self.failed=true;return Err(-5);
+        if self.pending.is_some() {
+            return Err(BUSY);
+        }
+        if bytes == 0
+            || bytes > wire::MAX_PAYLOAD
+            || packet.len() > wire::MAX_BYTES
+            || bytes + wire::HEADER > packet.len()
+        {
+            return Err(-1);
+        }
+        put(
+            packet,
+            Message {
+                peer: self.peer,
+                length: bytes as u64,
+                ..Message::new(op::CALL)
+            },
+        )?;
+        let r = exchange(&mut self.transport, &mut self.failed, packet)?;
+        if r.operation != op::CALL
+            || r.peer != self.peer
+            || r.serial == 0
+            || r.state != state::DONE
+            || r.length == 0
+            || r.length as usize > packet.len() - wire::HEADER
+        {
+            self.failed = true;
+            return Err(-5);
         }
         Ok(r.length as usize)
     }
@@ -195,18 +215,35 @@ impl<T: Transport> Server<T> {
     pub fn receive_wait(&mut self, packet: &mut [u8]) -> Result<(Ticket, usize), isize> {
         self.receive_op(packet, op::RECEIVE_WAIT)
     }
-    pub fn receive_wait_for(&mut self,packet:&mut [u8],millis:u64)->Result<(Ticket,usize),isize>{
-        if !(1..=10).contains(&millis){return Err(-1);}
-        self.receive_timed(packet,op::RECEIVE_WAIT,millis)
+    pub fn receive_wait_for(
+        &mut self,
+        packet: &mut [u8],
+        millis: u64,
+    ) -> Result<(Ticket, usize), isize> {
+        if !(1..=10).contains(&millis) {
+            return Err(-1);
+        }
+        self.receive_timed(packet, op::RECEIVE_WAIT, millis)
     }
-    fn receive_op(&mut self, packet: &mut [u8], operation:u64) -> Result<(Ticket, usize), isize> {
-        self.receive_timed(packet,operation,0)
+    fn receive_op(&mut self, packet: &mut [u8], operation: u64) -> Result<(Ticket, usize), isize> {
+        self.receive_timed(packet, operation, 0)
     }
-    fn receive_timed(&mut self, packet: &mut [u8], operation:u64,millis:u64) -> Result<(Ticket, usize), isize> {
+    fn receive_timed(
+        &mut self,
+        packet: &mut [u8],
+        operation: u64,
+        millis: u64,
+    ) -> Result<(Ticket, usize), isize> {
         if packet.len() > wire::MAX_BYTES {
             return Err(-1);
         }
-        put(packet, Message{serial:millis,..Message::new(operation)})?;
+        put(
+            packet,
+            Message {
+                serial: millis,
+                ..Message::new(operation)
+            },
+        )?;
         let r = exchange(&mut self.transport, &mut self.failed, packet)?;
         if r.operation != op::RECEIVE
             || !r.peer.valid()

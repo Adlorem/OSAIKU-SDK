@@ -14,11 +14,16 @@ const CSS: &str = "main { padding:0px; } #list { padding:10px; gap:4px; overflow
 
 #[test]
 fn popup_shadow_is_independent_of_raster_band_boundaries() {
-    let d=menu(true,20,118); // menu bottom=184, shadow reaches194 (crosses192)
-    let scene=Scene::from_document(&d,200,240).unwrap();
-    let render=|rows:usize|{let mut out=vec![0;200*240*4];
-        for (i,band) in out.chunks_mut(200*4*rows).enumerate(){osaiku_ui::raster::rows(&scene,(i*rows)as u32,band).unwrap();}out};
-    assert_eq!(render(32),render(31));
+    let d = menu(true, 20, 118); // menu bottom=184, shadow reaches194 (crosses192)
+    let scene = Scene::from_document(&d, 200, 240).unwrap();
+    let render = |rows: usize| {
+        let mut out = vec![0; 200 * 240 * 4];
+        for (i, band) in out.chunks_mut(200 * 4 * rows).enumerate() {
+            osaiku_ui::raster::rows(&scene, (i * rows) as u32, band).unwrap();
+        }
+        out
+    };
+    assert_eq!(render(32), render(31));
 }
 
 fn at(d: &Document, id: &str) -> usize {

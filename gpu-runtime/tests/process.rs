@@ -76,8 +76,8 @@ fn renderer_cannot_report_backend_health_and_failure_is_terminal() {
     .unwrap();
     assert_eq!(client.fence(1), Err(-8));
     assert_eq!(client.presented(1, 1), Err(-8));
-    assert_eq!(client.stopped(),Err(-8));
-    assert_eq!(unsafe { client.firmware_aborted() },Err(-8));
+    assert_eq!(client.stopped(), Err(-8));
+    assert_eq!(unsafe { client.firmware_aborted() }, Err(-8));
     assert_eq!(calls.borrow().len(), 1);
     client.heartbeat().unwrap();
     client.fail().unwrap();
@@ -85,25 +85,49 @@ fn renderer_cannot_report_backend_health_and_failure_is_terminal() {
     assert_eq!(calls.borrow().len(), 3);
 }
 #[test]
-fn changed_drain_identity_is_terminal_and_never_acknowledged_as_stopped(){
-    let calls=Rc::new(RefCell::new(Vec::new()));let corrupt=Rc::new(RefCell::new(false));
-    let mut client=Process::connect(Channel{role:4,corrupt:corrupt.clone(),calls:calls.clone()}).unwrap();
-    assert_eq!(client.draining(),Ok(false));
-    *corrupt.borrow_mut()=true;
-    assert_eq!(client.draining(),Err(-5));let before=calls.borrow().len();
-    assert_eq!(client.stopped(),Err(-5));assert_eq!(calls.borrow().len(),before);
+fn changed_drain_identity_is_terminal_and_never_acknowledged_as_stopped() {
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let corrupt = Rc::new(RefCell::new(false));
+    let mut client = Process::connect(Channel {
+        role: 4,
+        corrupt: corrupt.clone(),
+        calls: calls.clone(),
+    })
+    .unwrap();
+    assert_eq!(client.draining(), Ok(false));
+    *corrupt.borrow_mut() = true;
+    assert_eq!(client.draining(), Err(-5));
+    let before = calls.borrow().len();
+    assert_eq!(client.stopped(), Err(-5));
+    assert_eq!(calls.borrow().len(), before);
 }
 #[test]
 fn firmware_abort_uses_bound_identity_and_corrupt_receipt_prevents_failure_retry() {
-    for bad in [false,true] {
-        let calls=Rc::new(RefCell::new(Vec::new()));
-        let corrupt=Rc::new(RefCell::new(false));
-        let mut client=Process::connect(Channel{role:4,corrupt:corrupt.clone(),calls:calls.clone()}).unwrap();
-        *corrupt.borrow_mut()=bad;
-        let result=unsafe { client.firmware_aborted() };
-        assert_eq!(result,if bad {Err(-5)} else {Ok(())});
-        assert_eq!(calls.borrow()[1],Message{operation:op::FIRMWARE_ABORTED,..client.identity()});
-        if bad { assert_eq!(client.fail(),Err(-5)); assert_eq!(calls.borrow().len(),2); }
-        else { client.fail().unwrap();assert_eq!(calls.borrow()[2].operation,op::FAILURE); }
+    for bad in [false, true] {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let corrupt = Rc::new(RefCell::new(false));
+        let mut client = Process::connect(Channel {
+            role: 4,
+            corrupt: corrupt.clone(),
+            calls: calls.clone(),
+        })
+        .unwrap();
+        *corrupt.borrow_mut() = bad;
+        let result = unsafe { client.firmware_aborted() };
+        assert_eq!(result, if bad { Err(-5) } else { Ok(()) });
+        assert_eq!(
+            calls.borrow()[1],
+            Message {
+                operation: op::FIRMWARE_ABORTED,
+                ..client.identity()
+            }
+        );
+        if bad {
+            assert_eq!(client.fail(), Err(-5));
+            assert_eq!(calls.borrow().len(), 2);
+        } else {
+            client.fail().unwrap();
+            assert_eq!(calls.borrow()[2].operation, op::FAILURE);
+        }
     }
 }

@@ -4,9 +4,9 @@
 use crate::{compat::*, lifecycle::*, window::*};
 mod gpu;
 mod raster;
-mod surface;
-#[cfg(target_os="none")]
+#[cfg(target_os = "none")]
 mod shared;
+mod surface;
 pub use raster::{HostedRaster, RasterError};
 
 pub use crate::compat::{
@@ -38,7 +38,9 @@ pub trait WindowApplication: Sized {
     }
     /// Enable SDK-owned hover timing and help overlays for `ui-tooltip`.
     /// No application polling or tooltip event handling is required.
-    fn tooltips(&self) -> bool { false }
+    fn tooltips(&self) -> bool {
+        false
+    }
     /// Opt-in bounded observation of this application's own presentation state.
     fn observe_window_state(&self) -> bool {
         false

@@ -4,7 +4,9 @@ pub const VERSION: u64 = 1;
 /// A new operation in the unchanged UI_SURFACE v8 envelope. Old records retain
 /// their meaning. Payload is exactly Negotiation, both input and output.
 pub const NEGOTIATE: u32 = 22;
-pub use osaiku_gpu_protocol::buffer::{access, kind, BufferDesc, Handle, Error, MAX_BUFFER_BYTES, ARGB8888, XRGB8888, LINEAR};
+pub use osaiku_gpu_protocol::buffer::{
+    access, kind, BufferDesc, Error, Handle, ARGB8888, LINEAR, MAX_BUFFER_BYTES, XRGB8888,
+};
 pub const MAX_QUEUED: usize = 8;
 pub const MAX_CONTEXT_QUEUED: usize = 2;
 pub const MAX_TIMEOUT_US: u64 = 2_000_000;

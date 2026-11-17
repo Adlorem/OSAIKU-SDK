@@ -19,8 +19,14 @@ pub const CPU_MAPS: usize = 8 * CPU_MAPS_PER_OWNER;
 /// all RAM or silently clipping their quota. Actual allocation still charges
 /// each page and preserves the allocator's protected recovery reserve.
 pub fn compositor_pages(width: u64, height: u64, stride: u64) -> Option<usize> {
-    if width == 0 || height == 0 || width > 4096 || height > 4096
-        || stride < width * 4 || stride % 4 != 0 || stride > 65536 {
+    if width == 0
+        || height == 0
+        || width > 4096
+        || height > 4096
+        || stride < width * 4
+        || stride % 4 != 0
+        || stride > 65536
+    {
         return None;
     }
     let texture = (width * 4).div_ceil(512) * 512 * height.div_ceil(32) * 32;

@@ -39,10 +39,16 @@ static APPLICATION: AtomicU32 = AtomicU32::new(0);
 static VOLATILE_IMAGES: AtomicBool = AtomicBool::new(false);
 /// Opt this process into drawing mutable/private images without texture caching.
 /// Call before the first frame; static application assets retain the fast default.
-pub fn volatile_images() { VOLATILE_IMAGES.store(true, Ordering::Release); }
+pub fn volatile_images() {
+    VOLATILE_IMAGES.store(true, Ordering::Release);
+}
 /// Diagnostic label only; the kernel supplies the authenticated owner and seals.
-pub fn label(application:u32) { APPLICATION.store(application,Ordering::Release); }
-pub fn application()->u32 { APPLICATION.load(Ordering::Acquire) }
+pub fn label(application: u32) {
+    APPLICATION.store(application, Ordering::Release);
+}
+pub fn application() -> u32 {
+    APPLICATION.load(Ordering::Acquire)
+}
 /// Installed once by the linked, process-private graphics runtime before events.
 pub fn install(dispatch: Dispatch) {
     DISPATCH.store(dispatch as usize, Ordering::Release);
@@ -67,13 +73,32 @@ fn rect(r: Rect) -> [i32; 4] {
 pub const COMMAND_CAPACITY: usize = 32;
 /// Frame lifecycle has the same ordered channel as drawing, but occupies a
 /// complete batch. No renderer-private result or pointer is a request field.
-pub fn encode_control(scope: osaiku_gpu_protocol::render::Scope, width: u32, height: u32,
-    operation: u32, out: &mut [u8]) -> Result<usize, osaiku_gpu_protocol::render::Error> {
+pub fn encode_control(
+    scope: osaiku_gpu_protocol::render::Scope,
+    width: u32,
+    height: u32,
+    operation: u32,
+    out: &mut [u8],
+) -> Result<usize, osaiku_gpu_protocol::render::Error> {
     use osaiku_gpu_protocol::render::{self, Draw, Error, NO_ASSET};
-    if !matches!(operation, 1 | 2 | 7 | 8 | 10) { return Err(Error::Operation); }
-    let draw = Draw { operation, color: 0,
-        rect: if operation == 1 { [0, 0, width as i32, height as i32] } else { [0; 4] },
-        clip: [0; 4], shape: [0; 4], params: [0; 8], asset: NO_ASSET, offset: 0, length: 0 };
+    if !matches!(operation, 1 | 2 | 7 | 8 | 10) {
+        return Err(Error::Operation);
+    }
+    let draw = Draw {
+        operation,
+        color: 0,
+        rect: if operation == 1 {
+            [0, 0, width as i32, height as i32]
+        } else {
+            [0; 4]
+        },
+        clip: [0; 4],
+        shape: [0; 4],
+        params: [0; 8],
+        asset: NO_ASSET,
+        offset: 0,
+        length: 0,
+    };
     render::encode(scope, width, height, &[draw], out)
 }
 /// Encode one drawing batch after its assets have been registered as immutable
@@ -87,26 +112,49 @@ pub fn encode_batch(
     height: u32,
     commands: &[Command],
     out: &mut [u8],
-    seal: impl FnMut(&Command) -> Result<(osaiku_gpu_protocol::buffer::Handle, u64), osaiku_gpu_protocol::render::Error>,
+    seal: impl FnMut(
+        &Command,
+    ) -> Result<
+        (osaiku_gpu_protocol::buffer::Handle, u64),
+        osaiku_gpu_protocol::render::Error,
+    >,
 ) -> Result<usize, osaiku_gpu_protocol::render::Error> {
     let mut draws = EMPTY_DRAWS;
     encode_batch_with_scratch(scope, width, height, commands, out, &mut draws, seal)
 }
-pub const EMPTY_DRAWS: [osaiku_gpu_protocol::render::Draw; osaiku_gpu_protocol::render::MAX_DRAWS] = [
-    osaiku_gpu_protocol::render::Draw { operation: 0, color: 0, rect: [0; 4], clip: [0; 4],
-        shape: [0; 4], params: [0; 8], asset: osaiku_gpu_protocol::render::NO_ASSET, offset: 0, length: 0 };
-    osaiku_gpu_protocol::render::MAX_DRAWS];
+pub const EMPTY_DRAWS: [osaiku_gpu_protocol::render::Draw; osaiku_gpu_protocol::render::MAX_DRAWS] =
+    [osaiku_gpu_protocol::render::Draw {
+        operation: 0,
+        color: 0,
+        rect: [0; 4],
+        clip: [0; 4],
+        shape: [0; 4],
+        params: [0; 8],
+        asset: osaiku_gpu_protocol::render::NO_ASSET,
+        offset: 0,
+        length: 0,
+    }; osaiku_gpu_protocol::render::MAX_DRAWS];
 /// Native clients provide process-owned storage instead of nesting another
 /// full batch on the 16 KiB application stack. Output remains atomic on failure.
 pub fn encode_batch_with_scratch(
     scope: osaiku_gpu_protocol::render::Scope,
-    width: u32, height: u32, commands: &[Command], out: &mut [u8],
+    width: u32,
+    height: u32,
+    commands: &[Command],
+    out: &mut [u8],
     draws: &mut [osaiku_gpu_protocol::render::Draw; osaiku_gpu_protocol::render::MAX_DRAWS],
-    mut seal: impl FnMut(&Command) -> Result<(osaiku_gpu_protocol::buffer::Handle, u64), osaiku_gpu_protocol::render::Error>,
+    mut seal: impl FnMut(
+        &Command,
+    ) -> Result<
+        (osaiku_gpu_protocol::buffer::Handle, u64),
+        osaiku_gpu_protocol::render::Error,
+    >,
 ) -> Result<usize, osaiku_gpu_protocol::render::Error> {
     use osaiku_gpu_protocol::render::{self, Draw, Error, NO_ASSET};
-    if commands.is_empty() || commands.len() > render::MAX_DRAWS
-        || out.len() < render::HEADER_BYTES + commands.len() * render::DRAW_BYTES {
+    if commands.is_empty()
+        || commands.len() > render::MAX_DRAWS
+        || out.len() < render::HEADER_BYTES + commands.len() * render::DRAW_BYTES
+    {
         return Err(Error::Length);
     }
     for (c, draw) in commands.iter().zip(draws.iter_mut()) {
@@ -114,14 +162,27 @@ pub fn encode_batch_with_scratch(
             return Err(Error::Operation);
         }
         let (asset, offset) = if matches!(c.op, 4 | 6) {
-            if c.data.is_null() || c.len == 0 { return Err(Error::Asset); }
+            if c.data.is_null() || c.len == 0 {
+                return Err(Error::Asset);
+            }
             seal(c)?
         } else {
-            if !c.data.is_null() || c.len != 0 { return Err(Error::Asset); }
+            if !c.data.is_null() || c.len != 0 {
+                return Err(Error::Asset);
+            }
             (NO_ASSET, 0)
         };
-        *draw = Draw { operation: c.op, color: c.color, rect: c.rect, clip: c.clip,
-            shape: c.shape, params: c.params, asset, offset, length: c.len as u64 };
+        *draw = Draw {
+            operation: c.op,
+            color: c.color,
+            rect: c.rect,
+            clip: c.clip,
+            shape: c.shape,
+            params: c.params,
+            asset,
+            offset,
+            length: c.len as u64,
+        };
     }
     render::encode(scope, width, height, &draws[..commands.len()], out)
 }

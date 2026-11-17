@@ -6,17 +6,24 @@ use crate::{
 };
 pub struct Native;
 unsafe impl crate::upload::Transport for Native {
-    fn exchange(&mut self, request: osaiku_driver_protocol::shared::Request) -> Result<osaiku_driver_protocol::shared::Request, isize> {
-        use osaiku_driver_protocol::shared::{BYTES, Request, SYSCALL};
+    fn exchange(
+        &mut self,
+        request: osaiku_driver_protocol::shared::Request,
+    ) -> Result<osaiku_driver_protocol::shared::Request, isize> {
+        use osaiku_driver_protocol::shared::{Request, BYTES, SYSCALL};
         let mut bytes = request.encode();
         let r = invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0]);
-        if r != 0 { return Err(r); }
+        if r != 0 {
+            return Err(r);
+        }
         Request::decode(&bytes).map_err(|_| -5)
     }
     fn write(&mut self, address: u64, bytes: &[u8]) -> Result<(), isize> {
         // Upload validated the complete kernel mapping receipt. This native
         // transport is never mixed with another transport's address space.
-        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), address as *mut u8, bytes.len()); }
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), address as *mut u8, bytes.len());
+        }
         Ok(())
     }
 }
@@ -53,7 +60,9 @@ pub fn wait_for(microseconds: u64) {
         ],
     );
 }
-pub fn log(text: &str) -> Result<(), isize> { log_bytes(text.as_bytes()) }
+pub fn log(text: &str) -> Result<(), isize> {
+    log_bytes(text.as_bytes())
+}
 pub fn log_bytes(text: &[u8]) -> Result<(), isize> {
     if text.len() > 160 {
         return Err(-1);
@@ -94,23 +103,35 @@ impl crate::channel::Transport for Native {
         request: crate::protocol::channel::Message,
         payload: &mut [u8],
     ) -> Result<crate::protocol::channel::Message, isize> {
-        use core::{cell::UnsafeCell, sync::atomic::{AtomicBool, Ordering}};
         use crate::protocol::channel::{BUSY, BYTES, SYSCALL};
+        use core::{
+            cell::UnsafeCell,
+            sync::atomic::{AtomicBool, Ordering},
+        };
         struct Scratch(UnsafeCell<crate::channel_wire::Wire>);
         unsafe impl Sync for Scratch {}
         static WIRE: Scratch = Scratch(UnsafeCell::new(crate::channel_wire::Wire::EMPTY));
         static LOCK: AtomicBool = AtomicBool::new(false);
-        if LOCK.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+        if LOCK
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
             return Err(BUSY);
         }
         struct Guard;
-        impl Drop for Guard { fn drop(&mut self) { LOCK.store(false, Ordering::Release); } }
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                LOCK.store(false, Ordering::Release);
+            }
+        }
         let _guard = Guard;
         // Process-private ownership covers every trap/scheduling boundary.
         // Concurrent callers receive BUSY without touching the borrowed bytes.
-        unsafe { (&mut *WIRE.0.get()).exchange(request, payload, |bytes| {
-            invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0])
-        }) }
+        unsafe {
+            (&mut *WIRE.0.get()).exchange(request, payload, |bytes| {
+                invoke(SYSCALL, [0, bytes.as_mut_ptr() as u64, BYTES as u64, 0, 0])
+            })
+        }
     }
 }
 impl crate::platform::Transport for Native {

@@ -9,14 +9,42 @@ use crate::protocol::{
 pub trait Transport {
     fn exchange(&mut self, message: Message, payload: &mut [u8]) -> Result<Message, isize>;
 }
-#[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub struct Offer{pub device:u64,pub connection:u64,pub width:u32,pub height:u32}
-pub fn offer(transport:&mut impl Transport)->Result<Option<Offer>,isize>{
-    let r=transport.exchange(Message::new(op::OFFER),&mut[])?;
-    if r.operation!=op::OFFER||r.session!=0||r.generation!=0||r.sequence!=0||r.handle!=Handle::default()||r.length!=0||r.args[4..]!=[0;12]{return Err(-5);}
-    if r.status==0&&r.args==[0;16]{return Ok(None);}
-    if r.status!=1||r.args[0]==0||r.args[1]==0||!(1..=4096).contains(&r.args[2])||!(1..=4096).contains(&r.args[3]){return Err(-5);}
-    Ok(Some(Offer{device:r.args[0],connection:r.args[1],width:r.args[2]as u32,height:r.args[3]as u32}))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Offer {
+    pub device: u64,
+    pub connection: u64,
+    pub width: u32,
+    pub height: u32,
+}
+pub fn offer(transport: &mut impl Transport) -> Result<Option<Offer>, isize> {
+    let r = transport.exchange(Message::new(op::OFFER), &mut [])?;
+    if r.operation != op::OFFER
+        || r.session != 0
+        || r.generation != 0
+        || r.sequence != 0
+        || r.handle != Handle::default()
+        || r.length != 0
+        || r.args[4..] != [0; 12]
+    {
+        return Err(-5);
+    }
+    if r.status == 0 && r.args == [0; 16] {
+        return Ok(None);
+    }
+    if r.status != 1
+        || r.args[0] == 0
+        || r.args[1] == 0
+        || !(1..=4096).contains(&r.args[2])
+        || !(1..=4096).contains(&r.args[3])
+    {
+        return Err(-5);
+    }
+    Ok(Some(Offer {
+        device: r.args[0],
+        connection: r.args[1],
+        width: r.args[2] as u32,
+        height: r.args[3] as u32,
+    }))
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Identity {
@@ -256,11 +284,20 @@ impl<T: Transport> Channel<T> {
         self.identity.scope(self.next)
     }
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), isize> {
-        if self.pending.is_some() { return Err(wire::BUSY); }
-        if width == 0 || height == 0 || width > 4096 || height > 4096 { return Err(-1); }
-        let mut m = self.request(op::RESIZE); m.args[..2].copy_from_slice(&[u64::from(width), u64::from(height)]);
-        if self.call(m, &mut [])?.status != 0 { return self.bad(); }
-        self.identity.width = width; self.identity.height = height; Ok(())
+        if self.pending.is_some() {
+            return Err(wire::BUSY);
+        }
+        if width == 0 || height == 0 || width > 4096 || height > 4096 {
+            return Err(-1);
+        }
+        let mut m = self.request(op::RESIZE);
+        m.args[..2].copy_from_slice(&[u64::from(width), u64::from(height)]);
+        if self.call(m, &mut [])?.status != 0 {
+            return self.bad();
+        }
+        self.identity.width = width;
+        self.identity.height = height;
+        Ok(())
     }
     pub fn poll(&mut self) -> Result<bool, isize> {
         self.poll_result().map(|r| r.is_some())
@@ -313,8 +350,12 @@ impl<T: Transport> Channel<T> {
         let mut m = self.request(op::MAP);
         m.handle = handle;
         let r = self.call(m, &mut [])?;
-        let persistent=self.identity.client as u32==8 && r.args[0]>=0xb000_0000;
-        let (start,end,limit)=if persistent {(0xb000_0000,0xc000_0000,64*1024*1024)}else{(wire::ASSET_START,wire::ASSET_END,render::MAX_ASSET_BYTES)};
+        let persistent = self.identity.client as u32 == 8 && r.args[0] >= 0xb000_0000;
+        let (start, end, limit) = if persistent {
+            (0xb000_0000, 0xc000_0000, 64 * 1024 * 1024)
+        } else {
+            (wire::ASSET_START, wire::ASSET_END, render::MAX_ASSET_BYTES)
+        };
         if r.status != 0
             || r.args[3..] != [0; 13]
             || r.args[0] < start
@@ -322,9 +363,7 @@ impl<T: Transport> Channel<T> {
             || r.args[1] == 0
             || r.args[2] == 0
             || r.args[2] > limit
-            || r.args[0]
-                .checked_add(r.args[2])
-                .is_none_or(|at| at > end)
+            || r.args[0].checked_add(r.args[2]).is_none_or(|at| at > end)
         {
             return self.bad();
         }

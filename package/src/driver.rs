@@ -19,8 +19,7 @@ pub(crate) fn gpu_format(b: &[u8]) -> bool {
 /// Optional self-contained publisher identity. It conveys no trust.
 pub fn public_key(m: &Manifest<'_>) -> Result<Option<[u8; 32]>, Error> {
     classes(m)?;
-    Ok((u32_at(m.raw_metadata(), 8) == 3)
-        .then(|| m.raw_metadata()[480..512].try_into().unwrap()))
+    Ok((u32_at(m.raw_metadata(), 8) == 3).then(|| m.raw_metadata()[480..512].try_into().unwrap()))
 }
 
 pub fn parse(bytes: &[u8]) -> Result<application::Package<'_>, Error> {
@@ -46,8 +45,11 @@ pub(crate) fn extension(b: &[u8]) -> Result<usize, Error> {
     let keyed = u32_at(b, 8) == 3;
     if keyed {
         zero(&b[476..480])?;
-        let key = VerifyingKey::from_bytes(b[480..512].try_into().unwrap()).map_err(|_| Error::Policy)?;
-        if key.is_weak() { return Err(Error::Policy); }
+        let key =
+            VerifyingKey::from_bytes(b[480..512].try_into().unwrap()).map_err(|_| Error::Policy)?;
+        if key.is_weak() {
+            return Err(Error::Policy);
+        }
     }
     let gpu_bytes = if u32_at(b, 8) == 2 || gpu_format(b) {
         if u64_at(b, 448) != GPU_CLASS
@@ -56,7 +58,9 @@ pub(crate) fn extension(b: &[u8]) -> Result<usize, Error> {
         {
             return Err(Error::Manifest);
         }
-        if !keyed { zero(&b[476..512])?; }
+        if !keyed {
+            zero(&b[476..512])?;
+        }
         gpu_protocol::PACKAGE_BYTES
     } else {
         if u64_at(b, 448) & GPU_CLASS != 0 {
