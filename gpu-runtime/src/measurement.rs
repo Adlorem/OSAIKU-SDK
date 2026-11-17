@@ -72,7 +72,7 @@ pub fn record(phase: usize, start: Option<u64>, bytes: u64, auxiliary: u64) {
         );
     }
 }
-/// At most 21 binary records per five seconds. No allocations, retry, UART,
+/// At most 22 binary records per five seconds. No allocations, retry, UART,
 /// peer mailbox or data-dependent payload; failure never affects the caller.
 pub fn report(now: Option<u64>) {
     let Some(now) = now.filter(|n| *n != u64::MAX) else {

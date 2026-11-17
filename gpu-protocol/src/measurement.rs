@@ -2,7 +2,7 @@
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 pub const MAGIC: [u8; 8] = *b"OSAMEAS1";
 pub const BYTES: usize = 72;
-pub const PHASES: usize = 21;
+pub const PHASES: usize = 22;
 pub const NAMES: [&str; PHASES] = [
     "prepare",
     "rpc",
@@ -25,6 +25,7 @@ pub const NAMES: [&str; PHASES] = [
     "tx-no-slot",
     "initd-active-gap",
     "diagnostic-report",
+    "rcs-observed",
 ];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Snapshot {
