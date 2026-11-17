@@ -380,22 +380,43 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
         for i in 0..self.layout().len {
             let n = self.view.nodes[i];
             let p = self.layout().nodes[i];
-            if n.kind != Kind::Tooltip || n.state & state::SELECTED == 0
-                || p.hidden || p.disabled || p.clip.width == 0 || p.clip.height == 0
-                || self.layout().modal_popup(self.view).is_some_and(|m| Layout::popup_of(self.view, i) != Some(m))
-            { continue; }
+            if n.kind != Kind::Tooltip
+                || n.state & state::SELECTED == 0
+                || p.hidden
+                || p.disabled
+                || p.clip.width == 0
+                || p.clip.height == 0
+                || self
+                    .layout()
+                    .modal_popup(self.view)
+                    .is_some_and(|m| Layout::popup_of(self.view, i) != Some(m))
+            {
+                continue;
+            }
             let clip = self.layout().viewport;
             let text = self.text_of(i);
             let bounds = crate::tooltip::bounds(p.clip, clip, text);
-            if !painter.visible(bounds) { continue; }
+            if !painter.visible(bounds) {
+                continue;
+            }
             let background = self.color(theme::CARD, 0) & 0x00ff_ffff;
             let color = self.color(theme::TEXT, 0) & 0x00ff_ffff;
             painter.fill_rounded(bounds, 8, background, 255, clip);
-            painter.stroke_rounded(bounds, 8, [1;4], self.color(theme::LINE, 0) & 0x00ff_ffff, 255, clip);
-            let inner = bounds.inset([crate::tooltip::PAD;4]);
+            painter.stroke_rounded(
+                bounds,
+                8,
+                [1; 4],
+                self.color(theme::LINE, 0) & 0x00ff_ffff,
+                255,
+                clip,
+            );
+            let inner = bounds.inset([crate::tooltip::PAD; 4]);
             for (line, text) in crate::tooltip::lines(text, inner.width).enumerate() {
-                let at = Rect { y: inner.y + line as i32 * crate::tooltip::LINE_HEIGHT as i32,
-                    height: crate::tooltip::LINE_HEIGHT, ..inner };
+                let at = Rect {
+                    y: inner.y + line as i32 * crate::tooltip::LINE_HEIGHT as i32,
+                    height: crate::tooltip::LINE_HEIGHT,
+                    ..inner
+                };
                 painter.text(at, text, crate::tooltip::FONT, color, inner.intersect(clip));
             }
         }
@@ -525,7 +546,13 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             let color = s.color;
             match n.kind {
                 Kind::Tooltip => {
-                    painter.text(aligned(r, "?", s, decoration), "?", s.font_size, color, p.clip);
+                    painter.text(
+                        aligned(r, "?", s, decoration),
+                        "?",
+                        s.font_size,
+                        color,
+                        p.clip,
+                    );
                 }
                 Kind::Text | Kind::Button | Kind::Cell | Kind::TextInput => {
                     let text = self.text_of(i);

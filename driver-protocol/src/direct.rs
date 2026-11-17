@@ -33,21 +33,41 @@ pub const fn device_read_start(pages: u64) -> u64 {
 /// it during initial SERVICE_COMPLETE, before publication/BME. It is not an
 /// address grant and cannot cover another lease, MMIO or client copy buffers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CoherentRange { first: u64, end: u64 }
+pub struct CoherentRange {
+    first: u64,
+    end: u64,
+}
 impl CoherentRange {
     pub fn decode(pages: u64, offset: u64, length: u64) -> Result<Option<Self>, Error> {
-        if !(3..=MAX_PAGES).contains(&pages) { return Err(Error::Range); }
-        if offset == 0 && length == 0 { return Ok(None); }
-        let end = offset.checked_add(length).ok_or(Error::Range)?;
-        if length == 0 || offset % PAGE != 0 || length % PAGE != 0
-            || offset < device_read_start(pages) || end > pages * PAGE {
+        if !(3..=MAX_PAGES).contains(&pages) {
             return Err(Error::Range);
         }
-        Ok(Some(Self { first: offset / PAGE, end: end / PAGE }))
+        if offset == 0 && length == 0 {
+            return Ok(None);
+        }
+        let end = offset.checked_add(length).ok_or(Error::Range)?;
+        if length == 0
+            || offset % PAGE != 0
+            || length % PAGE != 0
+            || offset < device_read_start(pages)
+            || end > pages * PAGE
+        {
+            return Err(Error::Range);
+        }
+        Ok(Some(Self {
+            first: offset / PAGE,
+            end: end / PAGE,
+        }))
     }
-    pub fn contains(self, page: u64) -> bool { page >= self.first && page < self.end }
-    pub fn first_page(self) -> u64 { self.first }
-    pub fn pages(self) -> u64 { self.end - self.first }
+    pub fn contains(self, page: u64) -> bool {
+        page >= self.first && page < self.end
+    }
+    pub fn first_page(self) -> u64 {
+        self.first
+    }
+    pub fn pages(self) -> u64 {
+        self.end - self.first
+    }
 }
 pub mod op {
     pub const INVENTORY: u64 = 1;

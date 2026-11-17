@@ -294,8 +294,10 @@ pub fn key_event(
             event.kind = ERASE;
         }
         Key::Cancel => {
-            if let Some(n) = view.nodes[..view.len as usize].iter().find(|n|
-                n.kind == crate::Kind::Tooltip && n.state & crate::state::SELECTED != 0) {
+            if let Some(n) = view.nodes[..view.len as usize]
+                .iter()
+                .find(|n| n.kind == crate::Kind::Tooltip && n.state & crate::state::SELECTED != 0)
+            {
                 event.element = n.id;
                 event.kind = HOVER;
                 event.validate(target, view).ok()?;
@@ -552,7 +554,12 @@ impl Event {
             .ok_or(Error::Stale)?;
         let node = &view.nodes[index];
         // Only a slider position names its action; other input carries none.
-        let action = if self.kind == VALUE || (self.kind == FOCUS && node.kind == crate::Kind::Tooltip) { node.action } else { 0 };
+        let action =
+            if self.kind == VALUE || (self.kind == FOCUS && node.kind == crate::Kind::Tooltip) {
+                node.action
+            } else {
+                0
+            };
         if self.action != action {
             return Err(Error::Value);
         }

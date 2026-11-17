@@ -13,8 +13,15 @@ fn scratchpad_geometry_decodes_full_field_and_retains_domain_budget() {
     for n in 0..=1023u32 {
         let encoded = ((n & 31) << 27) | ((n >> 5) << 21);
         assert_eq!(u32::from(xhci_scratchpad_count(encoded)), n);
-        let array_pages = match n { 0 => 0, 1..=512 => 1, _ => 2 };
-        assert_eq!(xhci_arena_pages(encoded), DMA_BYTES / 4096 + array_pages + u64::from(n));
+        let array_pages = match n {
+            0 => 0,
+            1..=512 => 1,
+            _ => 2,
+        };
+        assert_eq!(
+            xhci_arena_pages(encoded),
+            DMA_BYTES / 4096 + array_pages + u64::from(n)
+        );
         assert_eq!(xhci_arena_pages(encoded) <= XHCI_DMA_PAGE_BUDGET, n <= 171);
     }
 }
@@ -32,7 +39,9 @@ fn endpoint_buffers_are_disjoint_aligned_and_fit_every_page_aligned_arena() {
                 let last = at + XHCI_TRANSFER_BYTES as u64;
                 assert_eq!(at / 65536, (last - 1) / 65536);
                 assert!(last <= start + XHCI_SLOT_PAGES * 4096);
-                if buffer > 0 { assert!(at >= end); }
+                if buffer > 0 {
+                    assert!(at >= end);
+                }
                 end = last;
             }
         }
@@ -105,15 +114,33 @@ fn retire_receipt_is_bound_to_its_slot_and_keeps_the_channel_live() {
     let sequence = channel.submit(r).unwrap();
     assert_eq!(channel.fetch().unwrap().operation, request::RETIRE);
     let reply = Reply {
-        sequence, generation: 9, slot: 2, endpoint: 0, code: 1, port: 0, actual: 0,
+        sequence,
+        generation: 9,
+        slot: 2,
+        endpoint: 0,
+        code: 1,
+        port: 0,
+        actual: 0,
     };
-    assert_eq!(channel.complete(Reply { generation: 10, ..reply }), Err(Error::Stale));
-    assert_eq!(channel.complete(Reply { slot: 3, ..reply }), Err(Error::Permission));
+    assert_eq!(
+        channel.complete(Reply {
+            generation: 10,
+            ..reply
+        }),
+        Err(Error::Stale)
+    );
+    assert_eq!(
+        channel.complete(Reply { slot: 3, ..reply }),
+        Err(Error::Permission)
+    );
     assert_eq!(channel.take(sequence), Ok(None));
     channel.complete(reply).unwrap();
     assert_eq!(channel.take(sequence), Ok(Some(reply)));
     assert!(channel.active());
-    assert!(channel.submit(request(9)).is_ok(), "retiring a device does not retire the controller");
+    assert!(
+        channel.submit(request(9)).is_ok(),
+        "retiring a device does not retire the controller"
+    );
 }
 #[test]
 fn crash_invalidates_all_outstanding_receipts_and_children() {
@@ -236,11 +263,17 @@ fn physical_scratchpad_pool_grants_only_234_pages_not_the_profile_ceiling() {
     let mut write = message(WRITE_ARENA, last, 8);
     write.payload[..8].copy_from_slice(&[0xa5; 8]);
     g.exchange(write).unwrap();
-    assert_eq!(&g.exchange(message(READ_ARENA, last, 8)).unwrap().payload[..8], &[0xa5; 8]);
+    assert_eq!(
+        &g.exchange(message(READ_ARENA, last, 8)).unwrap().payload[..8],
+        &[0xa5; 8]
+    );
     assert_eq!(g.exchange(message(READ_ARENA, last, 9)), Err(Error::Range));
     assert_eq!(g.exchange(zero(4096 + bytes, 1)), Err(Error::Range));
     g.exchange(zero(last, 8)).unwrap();
-    assert_eq!(&g.exchange(message(READ_ARENA, last, 8)).unwrap().payload[..8], &[0; 8]);
+    assert_eq!(
+        &g.exchange(message(READ_ARENA, last, 8)).unwrap().payload[..8],
+        &[0; 8]
+    );
 }
 fn message(op: u64, value: u64, n: u64) -> Message {
     let mut m = Message::new(IO, Scope::new(1, 1, 1).unwrap());

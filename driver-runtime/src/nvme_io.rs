@@ -44,18 +44,26 @@ impl<P: Platform> Gate<P> {
     /// Typed kernel-owner operations. Retain the same aperture exclusions and
     /// closed-state checks as the process ABI without serializing a message.
     pub fn read_register(&mut self, offset: u32) -> Result<u32, Error> {
-        if self.closed || !self.registers.allows(u64::from(offset), false) { return Err(Error::Permission); }
+        if self.closed || !self.registers.allows(u64::from(offset), false) {
+            return Err(Error::Permission);
+        }
         self.platform.read_register(offset)
     }
     pub fn write_register(&mut self, offset: u32, value: u32) -> Result<(), Error> {
-        if self.closed || !self.registers.allows(u64::from(offset), true) { return Err(Error::Permission); }
+        if self.closed || !self.registers.allows(u64::from(offset), true) {
+            return Err(Error::Permission);
+        }
         self.platform.write_register(offset, value)
     }
     pub fn fence(&mut self) -> Result<(), Error> {
-        if self.closed { return Err(Error::Stale); }
+        if self.closed {
+            return Err(Error::Stale);
+        }
         self.platform.fence()
     }
-    pub fn now(&mut self) -> u64 { self.platform.now() }
+    pub fn now(&mut self) -> u64 {
+        self.platform.now()
+    }
     /// Trusted owner only, serialized with revoke/restart. Each call still
     /// enters Platform's current-domain check; exchange keeps its 256-byte ABI.
     pub fn owner_read(&mut self, address: u64, bytes: &mut [u8]) -> Result<(), Error> {
@@ -71,8 +79,11 @@ impl<P: Platform> Gate<P> {
             return Err(Error::Stale);
         }
         let offset = address.checked_sub(self.base).ok_or(Error::Range)?;
-        if length == 0 || length > OWNER_COPY_BYTES
-            || offset.checked_add(length as u64).is_none_or(|end| end > DMA_BYTES)
+        if length == 0
+            || length > OWNER_COPY_BYTES
+            || offset
+                .checked_add(length as u64)
+                .is_none_or(|end| end > DMA_BYTES)
         {
             return Err(Error::Range);
         }
@@ -188,8 +199,10 @@ impl<P: Platform> Gate<P> {
                     .map_err(|_| Error::Range)?
                     .0;
                 for (i, slot) in slots[..entries].iter().enumerate() {
-                    self.platform
-                        .write_arena(ring + u64::from(*slot) * 64, &m.payload[i * 64..i * 64 + 64])?;
+                    self.platform.write_arena(
+                        ring + u64::from(*slot) * 64,
+                        &m.payload[i * 64..i * 64 + 64],
+                    )?;
                 }
                 self.platform.fence()?;
                 self.platform.write_register(doorbell, u32::from(tail))?;
@@ -244,7 +257,8 @@ impl<P: Platform> Gate<P> {
         Ok(m)
     }
     fn doorbell(&self, queue: u16, completion: bool) -> Result<u32, Error> {
-        let offset = 0x1000 + (2 * u32::from(queue) + u32::from(completion)) * self.registers.stride;
+        let offset =
+            0x1000 + (2 * u32::from(queue) + u32::from(completion)) * self.registers.stride;
         if !self.registers.allows(u64::from(offset), true) {
             return Err(Error::Permission);
         }

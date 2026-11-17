@@ -33,7 +33,10 @@ pub mod permission {
     pub const SELECTED_FILE_WRITE: u64 = 2;
     pub const DESKTOP_APPEARANCE_WRITE: u64 = 4;
     pub const SYSTEM_METRICS_READ: u64 = 8;
-    pub const KNOWN: u64 = 15;
+    /// Opt-in rendering through an isolated package renderer. This grants no
+    /// display, MMIO or DMA authority; the host must approve the signed request.
+    pub const GPU_RENDER: u64 = 16;
+    pub const KNOWN: u64 = 31;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -81,7 +84,8 @@ impl<'a> Manifest<'a> {
         let version = u32_at(bytes, 8);
         if (domain == Domain::Application
             && (&bytes[..8] != b"OSAMNF01" || !matches!(version, 1 | 2)))
-            || (domain == Domain::Driver && (&bytes[..8] != b"OSADMF01" || version != 1))
+            || (domain == Domain::Driver
+                && (&bytes[..8] != b"OSADMF01" || !matches!(version, 1 | 2 | 3)))
         {
             return Err(Error::Format);
         }
@@ -90,7 +94,12 @@ impl<'a> Manifest<'a> {
         }
         let compatibility_len = usize::from(u16_at(bytes, 60));
         let count = usize::from(u16_at(bytes, 62));
-        if count == 0 || count > MAX_RESOURCES + 1 || compatibility_len > compatibility::MAX_BYTES {
+        let gpu = domain == Domain::Driver && crate::driver::gpu_format(bytes);
+        let executables = if gpu { 2 } else { 1 };
+        if count < executables
+            || count > MAX_RESOURCES + executables
+            || compatibility_len > compatibility::MAX_BYTES
+        {
             return Err(Error::Limit);
         }
         let extra = if domain == Domain::Driver {
@@ -167,8 +176,14 @@ impl<'a> Manifest<'a> {
             }
             let c = Component { record };
             let limit = match c.kind() {
-                1 if i == 0 && name == "executable" => MAX_ELF_BYTES,
-                2 if i > 0 => {
+                1 if !gpu && i == 0 && name == "executable" => MAX_ELF_BYTES,
+                4 if gpu && i == 0 && name == "gpu-backend" => {
+                    crate::driver::gpu_protocol::MAX_BACKEND_ELF
+                }
+                5 if gpu && i == 1 && name == "gpu-renderer" => {
+                    crate::driver::gpu_protocol::MAX_RENDERER_ELF
+                }
+                2 if i >= if gpu { 2 } else { 1 } => {
                     if domain == Domain::Driver {
                         crate::driver::MAX_FIRMWARE_BYTES
                     } else {
@@ -181,10 +196,14 @@ impl<'a> Manifest<'a> {
                 }
                 _ => return Err(Error::Manifest),
             };
-            if i > 0 && (name == "executable" || name <= previous) {
+            let resource = i >= if gpu { 2 } else { 1 };
+            if resource
+                && (matches!(name, "executable" | "gpu-backend" | "gpu-renderer")
+                    || name <= previous)
+            {
                 return Err(Error::Identity);
             }
-            if i > 0 {
+            if resource {
                 previous = name;
             }
             if c.length() == 0 || c.length() > limit {
@@ -242,10 +261,15 @@ impl<'a> Manifest<'a> {
         u64_at(self.bytes, 24)
     }
     pub fn compatibility(&self) -> compatibility::Requirements<'a> {
-        compatibility::Requirements::decode(
+        let requirements = compatibility::Requirements::decode(
             &self.bytes[MANIFEST_BYTES..MANIFEST_BYTES + usize::from(u16_at(self.bytes, 60))],
         )
-        .unwrap()
+        .unwrap();
+        if self.domain == Domain::Driver && crate::driver::gpu_format(self.bytes) {
+            requirements.with_gpu(crate::driver::gpu(self).unwrap().unwrap())
+        } else {
+            requirements
+        }
     }
     pub fn components(&self) -> impl ExactSizeIterator<Item = Component<'a>> + '_ {
         self.descriptors
@@ -318,7 +342,7 @@ impl<'a> Package<'a> {
                 return Err(Error::Digest);
             }
             match component.kind() {
-                1 => elf_header(content)?,
+                1 | 4 | 5 => elf_header(content)?,
                 3 => icon(content)?,
                 _ => {}
             }

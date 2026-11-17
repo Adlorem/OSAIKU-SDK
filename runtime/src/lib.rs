@@ -9,6 +9,7 @@ pub mod agent;
 pub mod appearance;
 pub mod application;
 pub mod assistant;
+pub mod bcs;
 pub mod compat;
 pub mod context;
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
@@ -19,20 +20,22 @@ pub mod file_browser;
 pub mod file_export;
 pub mod file_manager;
 pub mod files;
+pub mod gpu_client;
+pub mod gpu_compositor;
+pub mod gpu_painter;
 pub mod gpu_timing;
 pub mod graphics;
-pub mod gpu_painter;
-pub mod bcs;
 pub mod hosted;
 pub mod ipc;
-pub mod network;
-pub mod wifi;
 pub mod launch;
 pub mod lifecycle;
 pub mod metrics;
 pub mod model_manager;
+pub mod network;
 pub mod packages;
+pub mod reply_slot;
 pub mod threads;
+pub mod wifi;
 pub use osaiku_package::compatibility as package_compatibility;
 pub mod packaged;
 pub mod private_data;
@@ -46,6 +49,7 @@ pub mod status_client;
 pub mod status_snapshot;
 pub mod surface;
 pub mod window;
+pub mod window_buffer;
 pub mod window_status;
 
 #[cfg(all(target_arch = "x86_64", target_os = "none"))]
@@ -57,3 +61,5 @@ pub mod devices;
 pub mod package_service;
 
 pub mod picker;
+
+pub use osaiku_gpu_runtime::measurement;

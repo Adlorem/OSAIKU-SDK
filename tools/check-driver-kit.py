@@ -14,6 +14,29 @@ import subprocess
 import tempfile
 
 
+def validate_packages(packages, root):
+    local = {'driver-kit-client', 'osaiku-driver-runtime', 'osaiku-driver-protocol',
+             'osaiku-network-protocol', 'osaiku-wifi-protocol'}
+    # Credential zeroization is a pinned public dependency, not a private OS
+    # path. Do not turn this into permission for arbitrary registry/Git crates.
+    public = ('zeroize', '1.8.2', 'registry+https://github.com/rust-lang/crates.io-index')
+    names = set()
+    for package in packages:
+        name = package['name']
+        path = Path(package['manifest_path']).resolve()
+        if name in names:
+            raise RuntimeError('Duplicate package in isolated Driver Kit')
+        if name in local:
+            if root not in path.parents or package['source'] is not None:
+                raise RuntimeError('Private dependency escaped the isolated Driver Kit')
+        elif (name, package['version'], package['source']) != public:
+            raise RuntimeError('Unapproved dependency in isolated Driver Kit')
+        names.add(name)
+    if names != local | {'zeroize'}:
+        raise RuntimeError('Incomplete isolated Driver Kit dependency graph')
+    return names
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', action='store_true')
@@ -28,12 +51,12 @@ def main():
             checkouts.append(sdk.parent)
         if any(root == checkout or checkout in root.parents for checkout in checkouts):
             raise RuntimeError('Independent build TEMP must be outside the OS/SDK checkout')
-        for name in ('driver-protocol', 'driver-runtime', 'network-protocol'):
+        for name in ('driver-protocol', 'driver-runtime', 'network-protocol', 'wifi-protocol'):
             shutil.copytree(sdk/name, root/name)
         shutil.copytree(sdk/'tests/driver-kit-client', root/'client')
         shutil.copytree(sdk/'targets', root/'targets')
         shutil.copyfile(sdk/'rust-toolchain.toml', root/'rust-toolchain.toml')
-        (root/'Cargo.toml').write_text('[workspace]\nmembers=["driver-protocol","driver-runtime","network-protocol"]\nexclude=["client"]\nresolver="2"\n[workspace.package]\nedition="2021"\nversion="0.1.0"\nlicense="MIT"\n')
+        (root/'Cargo.toml').write_text('[workspace]\nmembers=["driver-protocol","driver-runtime","network-protocol","wifi-protocol"]\nexclude=["client"]\nresolver="2"\n[workspace.package]\nedition="2021"\nversion="0.1.0"\nlicense="MIT"\n')
         env = dict(os.environ, CARGO_NET_OFFLINE='true', CARGO_TARGET_DIR=str(root/'target'))
         # Inherited OS target overrides are deliberately excluded from this proof.
         env.pop('OSAIKU_KERNEL_TARGET', None)
@@ -43,13 +66,7 @@ def main():
         run('cargo', 'generate-lockfile', '--manifest-path', 'client/Cargo.toml', '--offline')
         metadata = json.loads(subprocess.check_output(['cargo','metadata','--manifest-path','client/Cargo.toml',
             '--format-version','1','--offline','--locked'], cwd=root, env=env, text=True))
-        names = set()
-        for package in metadata['packages']:
-            path = Path(package['manifest_path']).resolve()
-            if root not in path.parents or package['source'] is not None:
-                raise RuntimeError('Private/external dependency escaped the isolated Driver Kit')
-            names.add(package['name'])
-        assert names == {'driver-kit-client', 'osaiku-driver-runtime', 'osaiku-driver-protocol', 'osaiku-network-protocol'}
+        names = validate_packages(metadata['packages'], root)
         run('cargo','build','--manifest-path','client/Cargo.toml','--release','--offline','--locked')
         run('cargo','test','--manifest-path','client/Cargo.toml','--offline','--locked')
         if args.target:

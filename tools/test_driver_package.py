@@ -87,6 +87,49 @@ class = 3
         self.run_tool('driver-key', '--public-key', 'public', '--classes', 1, '--revoke', '--output', 'revoke.osadkey')
         self.assertEqual(struct.unpack('<Q', (self.root / 'revoke.osadkey').read_bytes()[32:])[0], (1 << 63) | 1)
 
+    def gpu_manifest(self):
+        return self.manifest.replace('executable = "driver.elf"\n', '').replace('classes = 1', 'classes = 64').replace('isolation = "mediated"', 'isolation = "iommu"').replace('abi_major = 1', '''abi_major = 1
+protocols = [{id=11, major=1}, {id=12, major=1}, {id=13, major=1}]''').replace('bus = "usb"\nclass = 3', '''bus = "pci"
+vendor = 32902
+device = 39876
+class = 3
+revision_min = 0
+revision_max = 5
+[gpu]
+family = "intel-cometlake"
+backend = "driver.elf"
+renderer = "driver.elf"
+dma_address_bits = 39
+gpu_address_bits = 48
+memory_model = "unified"
+platform_abi = {major=1}
+renderer_abi = {major=1}
+client_abi = {major=1}
+backend_budget = {memory=262144, dma=4096, stack=16384, threads=1, instances=1}
+renderer_budget = {memory=262144, stack=16384, threads=1, instances=1}''')
+
+    def test_gpu_two_elf_authoring_requires_own_publisher_scope(self):
+        (self.root / 'gpu.toml').write_text(self.gpu_manifest())
+        self.run_tool('driver-pack', 'gpu.toml', '--key', 'private', '--output', 'gpu.osadrv')
+        inspection = self.run_tool('driver-inspect', 'gpu.osadrv').stdout
+        self.assertIn('gpu-family=intel-cometlake', inspection)
+        self.assertIn('activation-granted=false', inspection)
+        self.approve('driver', 1)
+        self.run_tool('driver-verify', 'gpu.osadrv', '--policy', 'policy', ok=False)
+        self.approve('driver-gpu', 2)
+        self.run_tool('driver-verify', 'gpu.osadrv', '--policy', 'policy')
+        self.run_tool('driver-key', '--public-key', 'public', '--classes', 64, '--output', 'gpu.osadkey')
+        self.assertEqual(struct.unpack('<Q', (self.root / 'gpu.osadkey').read_bytes()[32:])[0], 64)
+
+    def test_gpu_bad_role_budget_or_revision_leaves_no_package(self):
+        for bad in [self.gpu_manifest().replace('revision_min = 0', 'revision_min = 6'),
+                    self.gpu_manifest().replace('renderer_budget = {memory=262144,', 'renderer_budget = {memory=262144, dma=4096,'),
+                    self.gpu_manifest().replace('classes = 64', 'classes = 8'),
+                    self.gpu_manifest().replace('{id=11, major=1}', '{id=11, major=1, optional=true}')]:
+            (self.root / 'bad.toml').write_text(bad)
+            self.run_tool('driver-pack', 'bad.toml', '--key', 'private', '--output', 'bad.osadrv', ok=False)
+            self.assertFalse((self.root / 'bad.osadrv').exists())
+
     def test_repository_and_local_source_have_separate_domain_and_key_scope(self):
         self.run_tool('driver-pack', 'driver.toml', '--key', 'private', '--output', 'driver.osadrv')
         (self.root / 'index.toml').write_text('''[repository]

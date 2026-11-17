@@ -22,7 +22,8 @@ DOMAINS = {"application": (1, b"OSAPPK01", b"OSAIKU/application-package/v1\0"),
            "driver-input": (5, b"OSADIN01", b"OSAIKU/driver-input/v1\0"),
            "driver-storage": (6, b"OSADST01", b"OSAIKU/driver-storage/v1\0"),
            "driver-controller": (7, b"OSADCT01", b"OSAIKU/driver-controller/v1\0"),
-           "driver-repository": (8, b"OSADIX01", b"OSAIKU/driver-repository-index/v1\0")}
+           "driver-repository": (8, b"OSADIX01", b"OSAIKU/driver-repository-index/v1\0"),
+           "driver-gpu": (9, b"OSADGP01", b"OSAIKU/driver-gpu/v1\0")}
 PACKAGE_LIMIT = 256 * 1024 * 1024
 
 
@@ -121,18 +122,47 @@ def compatibility(config):
                        config.get("abi_minor", 0), config.get("cpu_features", 0), len(records)) + b"".join(r[1] for r in records)
 
 
+def gpu_contract(g):
+    fields(g, ("family", "backend", "renderer", "platform_abi", "renderer_abi", "client_abi",
+               "backend_budget", "renderer_budget", "dma_address_bits", "gpu_address_bits", "memory_model"),
+              ("family", "backend", "renderer", "platform_abi", "renderer_abi", "client_abi",
+               "backend_budget", "renderer_budget", "dma_address_bits", "gpu_address_bits", "memory_model"))
+    out = bytearray(fixed(g["family"], 64))
+    for name in ("platform_abi", "renderer_abi", "client_abi"):
+        a = g[name]
+        fields(a, ("major", "minor", "features"), ("major",))
+        out.extend(struct.pack("<HH4xQ", a["major"], a.get("minor", 0), a.get("features", 0)))
+    for name in ("backend_budget", "renderer_budget"):
+        a = g[name]
+        fields(a, ("memory", "dma", "stack", "tls", "threads", "instances"),
+                  ("memory", "stack", "threads", "instances"))
+        out.extend(struct.pack("<QQIIHH4x", a["memory"], a.get("dma", 0), a["stack"],
+                               a.get("tls", 0), a["threads"], a["instances"]))
+    out.extend(struct.pack("<BBB13x", g["dma_address_bits"], g["gpu_address_bits"],
+                           {"unified": 1, "device-local": 2}[g["memory_model"]]))
+    return out
+
+
 def pack(config, base, key, driver=False):
-    fields(config, ("package", "compatibility", "resources", "driver", "matches", "dependencies") if driver else ("package", "compatibility", "resources"), ("package", "compatibility", "driver", "matches") if driver else ("package", "compatibility"))
+    fields(config, ("package", "compatibility", "resources", "driver", "matches", "dependencies", "gpu") if driver else ("package", "compatibility", "resources"), ("package", "compatibility", "driver", "matches") if driver else ("package", "compatibility"))
+    gpu = config.get("gpu") if driver else None
     p = config["package"]
     fields(p, ("id", "name", "version", "sdk", "release", "epoch", "executable", "permissions",
                "memory_bytes", "io_bytes", "threads", "instances", "surfaces", "entry", "width", "height", "category"),
-           ("id", "name", "version", "release", "epoch", "executable", "memory_bytes"))
+           ("id", "name", "version", "release", "epoch", "memory_bytes") + (() if gpu is not None else ("executable",)))
     compat = compatibility(config["compatibility"])
     resources = config.get("resources", [])
     if len(resources) > 128:
         raise ValueError("too many resources")
-    components = [(1, "executable", read(base / p["executable"], 128 * 1024 * 1024))]
-    content_bytes = len(components[0][2])
+    if gpu is not None:
+        if "executable" in p:
+            raise ValueError("GPU v2 requires named backend and renderer, not executable")
+        contract = gpu_contract(gpu)
+        components = [(4, "gpu-backend", read(base / gpu["backend"], 16 * 1024 * 1024)),
+                      (5, "gpu-renderer", read(base / gpu["renderer"], 128 * 1024 * 1024))]
+    else:
+        components = [(1, "executable", read(base / p["executable"], 128 * 1024 * 1024))]
+    content_bytes = sum(len(c[2]) for c in components)
     for resource in sorted(resources, key=lambda r: r["name"]):
         fields(resource, ("name", "path", "kind"), ("name", "path"))
         kind = {"data": 2, "icon": 3}[resource.get("kind", "data")]
@@ -144,11 +174,14 @@ def pack(config, base, key, driver=False):
     extension = bytearray()
     if driver:
         d = config["driver"]
-        fields(d, ("classes", "cpu_permille", "irq_per_second", "queue", "isolation", "reset"), ("classes", "cpu_permille", "queue", "isolation", "reset"))
+        fields(d, ("classes", "cpu_permille", "irq_per_second", "queue", "isolation", "reset", "include_public_key"), ("classes", "cpu_permille", "queue", "isolation", "reset"))
+        if type(d.get("include_public_key", False)) is not bool:
+            raise ValueError("include_public_key must be boolean")
         rules = []
         for r in config["matches"]:
-            fields(r, ("bus", "vendor", "device", "class", "subclass", "protocol", "interface"), ("bus",))
-            rules.append(struct.pack("<7H18x", {"pci": 1, "usb": 2, "i8042": 3}[r["bus"]], *(r.get(f, 65535) for f in ("vendor", "device", "class", "subclass", "protocol", "interface"))))
+            fields(r, ("bus", "vendor", "device", "class", "subclass", "protocol", "interface", "revision_min", "revision_max") if gpu is not None else ("bus", "vendor", "device", "class", "subclass", "protocol", "interface"),
+                      ("bus", "vendor", "device", "class", "revision_min", "revision_max") if gpu is not None else ("bus",))
+            rules.append(struct.pack("<7HBB16x", {"pci": 1, "usb": 2, "i8042": 3}[r["bus"]], *(r.get(f, 65535) for f in ("vendor", "device", "class", "subclass", "protocol", "interface")), r.get("revision_min", 0), r.get("revision_max", 0)))
         dependencies = []
         for r in config.get("dependencies", []):
             fields(r, ("publisher", "id", "release", "digest"), ("publisher", "id", "release", "digest"))
@@ -158,7 +191,7 @@ def pack(config, base, key, driver=False):
             dependencies.append(publisher + fixed(r["id"], 128) + struct.pack("<Q", r["release"]) + digest + bytes(8))
         if not 1 <= len(rules) <= 16 or len(dependencies) > 16:
             raise ValueError("driver match/dependency limit")
-        extension = b"".join(sorted(rules)) + b"".join(sorted(dependencies))
+        extension = b"".join(sorted(rules)) + b"".join(sorted(dependencies)) + (contract if gpu is not None else b"")
     table = ((512 + len(compat) + 7) & ~7) + len(extension)
     metadata_size = table + 112 * len(components)
     metadata = bytearray(metadata_size)
@@ -166,7 +199,8 @@ def pack(config, base, key, driver=False):
     categories = ("other", "system", "utilities", "office", "graphics", "multimedia",
                   "internet", "games", "development", "education")
     category = categories.index(p.get("category", "other"))
-    struct.pack_into("<8sIIQQQQHHHHHHHH", metadata, 0, b"OSADMF01" if driver else b"OSAMNF01", 1 if driver else (2 if "category" in p else 1), metadata_size,
+    keyed = driver and config["driver"].get("include_public_key", False)
+    struct.pack_into("<8sIIQQQQHHHHHHHH", metadata, 0, b"OSADMF01" if driver else b"OSAMNF01", (3 if keyed else (2 if gpu is not None else 1)) if driver else (2 if "category" in p else 1), metadata_size,
                      p["release"], p.get("permissions", 0), p["memory_bytes"], p.get("io_bytes", 65536),
                      p.get("threads", 1), p.get("instances", 1), p.get("surfaces", 0), entry,
                      p.get("width", 0), p.get("height", 0), len(compat), len(components))
@@ -182,6 +216,10 @@ def pack(config, base, key, driver=False):
             raise ValueError("firmware exceeds limit")
         struct.pack_into("<QIIHHHHH", metadata, 448, d["classes"], d["cpu_permille"], d.get("irq_per_second", 0), d["queue"], {"mediated": 1, "iommu": 2}[d["isolation"]], {"function": 1, "group": 2, "cold": 3}[d["reset"]], len(rules), len(dependencies))
         metadata[table-len(extension):table] = extension
+        if gpu is not None:
+            struct.pack_into("<H", metadata, 474, len(contract))
+        if keyed:
+            metadata[480:512] = key.public_key().public_bytes_raw()
     metadata[512:512 + len(compat)] = compat
     body = bytearray()
     for index, (kind, name, content) in enumerate(components):
@@ -327,8 +365,8 @@ def main():
             print(f"created={args.output}\nsha256={hashlib.sha256(data).hexdigest()}")
         elif args.command == "driver-key":
             public = read(args.public_key, 32)
-            if len(public) != 32 or not 1 <= args.classes <= 63 or args.output.suffix != ".osadkey":
-                raise ValueError("expected a 32-byte public key, classes 1..63 and .osadkey output")
+            if len(public) != 32 or not 1 <= args.classes <= 127 or args.output.suffix != ".osadkey":
+                raise ValueError("expected a 32-byte public key, classes 1..127 and .osadkey output")
             data = public + struct.pack("<Q", args.classes | ((1 << 63) if args.revoke else 0))
             atomic(args.output, data, lambda _: None)
             print("fingerprint=" + hashlib.sha256(public).hexdigest())

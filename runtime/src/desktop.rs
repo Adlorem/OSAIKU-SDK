@@ -5,9 +5,27 @@ pub use crate::{
     ipc::ReplyError, log_write, process_exit, scheduler_yield, ui_view_invalidate,
     yield_to as yield_to_endpoint,
 };
-pub use crate::{
-    ipc_reply_and_yield, ipc_send as ipc_send_bytes_to, ipc_send as ipc_send_reply_to,
-};
+pub fn ipc_send_bytes_to(peer: ProcessEndpoint, bytes: &[u8]) -> isize {
+    unsafe { crate::reply_slot::send_application(peer, bytes) }
+}
+pub use ipc_send_bytes_to as ipc_send_reply_to;
+pub fn ipc_send_reply_with_metadata(
+    peer: ProcessEndpoint,
+    bytes: &[u8],
+    kind: u64,
+    id: u64,
+) -> isize {
+    unsafe { crate::reply_slot::send_application_with_metadata(peer, bytes, kind, id) }
+}
+
+pub fn ipc_reply_and_yield(peer: ProcessEndpoint, bytes: &[u8]) -> Result<(), ReplyError> {
+    let id =
+        crate::lifecycle::WindowSessionTeardownReceipt::decode(bytes).map_or(0, |r| r.notice_id);
+    crate::ipc::send_then_handoff(
+        || ipc_send_reply_with_metadata(peer, bytes, 2, id),
+        || crate::yield_to(peer),
+    )
+}
 pub fn process_self_endpoint(out: &mut ProcessEndpoint) -> isize {
     match crate::process_self() {
         Ok(v) => {
@@ -63,6 +81,11 @@ pub fn thread_join(id: u64, code: &mut u64) -> isize {
 }
 pub fn thread_sleep(micros: u64) -> isize {
     syscall1(crate::abi::number::THREAD_SLEEP, micros) as isize
+}
+/// Latched graphics completion wait, valid on the main thread as well as
+/// workers. Does not receive or discard application IPC messages.
+pub fn graphics_event_wait(micros: u64) -> isize {
+    syscall1(crate::abi::number::THREAD_EVENT_WAIT, micros) as isize
 }
 pub fn thread_exit(code: u64) -> ! {
     syscall1(crate::abi::number::THREAD_EXIT, code);

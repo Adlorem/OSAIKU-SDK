@@ -1,5 +1,5 @@
 //! Experimental immutable pixel transport, independent of the old recipe wire.
-mod dirty;
+pub(crate) mod dirty;
 mod window_state;
 pub use window_state::{window_state_with, WindowState, WINDOW_STATE};
 mod frame;
@@ -9,8 +9,8 @@ pub use frame::{frame_offer_with, frame_request_with, frame_snapshot_with};
 mod reader;
 mod receiver;
 mod supervisor;
+pub use crate::gpu_painter::{GpuOffer, BEGIN_GPU};
 pub use osaiku_ui::surface::*;
-pub use crate::gpu_painter::{BEGIN_GPU, GpuOffer};
 pub use publisher::{PublishStep, SurfacePublisher};
 pub use reader::{ReadChunk, ReadError, SurfaceReader};
 pub use receiver::{ReceiveStep, ReceivedFrame, SurfaceReceiver};
@@ -39,6 +39,14 @@ pub const BEGIN_DELTA: u32 = 18;
 pub const COPY_BASE: u32 = 19;
 /// Discover dirty rows while uploading. DeltaOffer.dirty must initially be empty.
 pub const BEGIN_STREAM: u32 = 20;
+pub const BEGIN_SHARED: u32 = 26;
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SharedOffer {
+    pub frame: FrameOffer,
+    pub buffer: crate::window_buffer::Handle,
+    pub base: Handle,
+}
 
 /// Request envelope v8 opts into palette IDs with an accent byte. Record
 /// layouts retain VERSION (7). The kernel also accepts v7 requests, whose

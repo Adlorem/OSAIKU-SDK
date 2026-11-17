@@ -25,6 +25,9 @@ pub mod protocol {
     pub const DIRECT_DEVICE: u32 = 8;
     pub const NETWORK_CHANNEL: u32 = 9;
     pub const NETWORK_SERVICE: u32 = 10;
+    pub const GPU_PLATFORM: u32 = 11;
+    pub const GPU_RENDERER: u32 = 12;
+    pub const GPU_CLIENT: u32 = 13;
 }
 
 /// Additional features beyond the native x86-64 baseline. The host advertises
@@ -69,6 +72,8 @@ pub struct ProtocolRequirement {
 pub struct ProtocolSupport {
     pub id: u32,
     pub version: Version,
+    /// Implemented features of this exact protocol, not CPU feature bits.
+    pub features: u64,
 }
 
 /// One supported major per protocol in v1, sorted by strictly increasing ID.
@@ -97,6 +102,7 @@ pub enum CompatibilityError {
     ProcessAbi,
     CpuFeatures,
     RequiredProtocol(u32),
+    RequiredFeatures(u32),
 }
 
 /// Bit positions correspond to the canonical requirement order. An absent or
@@ -116,6 +122,7 @@ impl Availability {
 pub struct Requirements<'a> {
     profile: Profile,
     protocols: &'a [u8],
+    features: [(u32, u64); 3],
 }
 
 impl<'a> Requirements<'a> {
@@ -148,6 +155,7 @@ impl<'a> Requirements<'a> {
         let result = Self {
             profile,
             protocols: &bytes[HEADER_BYTES..],
+            features: [(0, 0); 3],
         };
         let mut previous = 0;
         for record in result.protocols.chunks_exact(PROTOCOL_BYTES) {
@@ -166,6 +174,17 @@ impl<'a> Requirements<'a> {
 
     pub fn profile(&self) -> Profile {
         self.profile
+    }
+
+    // Only Manifest attaches this extension, after binding its interfaces to
+    // the three required protocol records. A caller cannot relax signed bits.
+    pub(crate) fn with_gpu(mut self, gpu: osaiku_gpu_protocol::Package<'_>) -> Self {
+        self.features = [
+            (protocol::GPU_PLATFORM, gpu.platform.features),
+            (protocol::GPU_RENDERER, gpu.renderer.features),
+            (protocol::GPU_CLIENT, gpu.client.features),
+        ];
+        self
     }
 
     pub fn protocols(&self) -> impl ExactSizeIterator<Item = ProtocolRequirement> + '_ {
@@ -214,6 +233,16 @@ impl<'a> Requirements<'a> {
                 available |= 1 << index;
             } else if !required.optional {
                 return Err(CompatibilityError::RequiredProtocol(required.id));
+            }
+        }
+        for (id, required) in self.features {
+            if required != 0
+                && !platform
+                    .protocols
+                    .iter()
+                    .any(|p| p.id == id && required & !p.features == 0)
+            {
+                return Err(CompatibilityError::RequiredFeatures(id));
             }
         }
         Ok(Availability(available))

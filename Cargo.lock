@@ -140,6 +140,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "osaiku-gpu-protocol"
+version = "0.1.0"
+
+[[package]]
+name = "osaiku-gpu-runtime"
+version = "0.1.0"
+dependencies = [
+ "osaiku-driver-protocol",
+ "osaiku-gpu-protocol",
+ "sha2",
+]
+
+[[package]]
 name = "osaiku-native-hello"
 version = "0.1.0"
 dependencies = [
@@ -155,6 +168,7 @@ name = "osaiku-package"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "osaiku-gpu-protocol",
  "sha2",
 ]
 
@@ -170,6 +184,9 @@ dependencies = [
 name = "osaiku-runtime"
 version = "0.2.0"
 dependencies = [
+ "osaiku-driver-protocol",
+ "osaiku-gpu-protocol",
+ "osaiku-gpu-runtime",
  "osaiku-network-protocol",
  "osaiku-package",
  "osaiku-ui",

@@ -16,6 +16,9 @@ pub mod op {
     pub const UNMAP: u64 = 4;
     pub const REVOKE: u64 = 5;
     pub const QUERY: u64 = 6;
+    /// Permanently remove every writable CPU alias/grant. Success is returned
+    /// only after all CPU TLB receipts; CPU-only backing never enters DMA.
+    pub const SEAL: u64 = 7;
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Handle {
@@ -31,7 +34,8 @@ pub struct Request {
     pub first_page: u64,
     pub pages: u64,
     pub rights: u64,
-    /// MAP returns a process-local address and alias token. UNMAP takes token.
+    /// MAP returns a process-local alias token. UNMAP takes that token.
+    /// QUERY/SEAL returns 1 for a completed immutable seal, otherwise 0.
     pub token: u64,
     pub address: u64,
     /// QUERY/REVOKE: charged pages still mapped, reclaimed, quarantined.
@@ -78,7 +82,7 @@ impl Request {
             return Err(Error::Reserved);
         }
         let n = |i: usize| u64::from_le_bytes(bytes[8 + i * 8..16 + i * 8].try_into().unwrap());
-        if !(op::CREATE..=op::QUERY).contains(&n(0)) {
+        if !(op::CREATE..=op::SEAL).contains(&n(0)) {
             return Err(Error::Kind);
         }
         Ok(Self {

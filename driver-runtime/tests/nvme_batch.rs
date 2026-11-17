@@ -28,7 +28,10 @@ impl Platform for Recorder {
         Ok(())
     }
     fn read_arena(&mut self, o: u64, b: &mut [u8]) -> Result<(), Error> {
-        self.0.borrow_mut().cq_order.push(if b.len() == 4 { "phase" } else { "body" });
+        self.0
+            .borrow_mut()
+            .cq_order
+            .push(if b.len() == 4 { "phase" } else { "body" });
         b.copy_from_slice(&self.0.borrow().memory[o as usize..o as usize + b.len()]);
         Ok(())
     }
@@ -79,7 +82,12 @@ fn io(sequence: u64, value: u64, length: u64) -> Message {
 }
 fn completion(r: &Recorder, queue: usize, slot: usize, cid: u16, phase: bool) {
     let at = dma_region(queue * 2 + 1).unwrap().0 as usize + slot * 16;
-    let words = [7u32, 0, (queue as u32) << 16, u32::from(cid) | (u32::from(phase) << 16)];
+    let words = [
+        7u32,
+        0,
+        (queue as u32) << 16,
+        u32::from(cid) | (u32::from(phase) << 16),
+    ];
     for (i, w) in words.into_iter().enumerate() {
         r.0.borrow_mut().memory[at + i * 4..at + i * 4 + 4].copy_from_slice(&w.to_le_bytes());
     }
@@ -88,7 +96,10 @@ fn completion(r: &Recorder, queue: usize, slot: usize, cid: u16, phase: bool) {
 fn gather_wire_round_trips_and_rejects_malformed_runs() {
     let runs = [
         Segment { lba: 8, pages: 3 },
-        Segment { lba: (1 << 48) - 8, pages: 1 },
+        Segment {
+            lba: (1 << 48) - 8,
+            pages: 1,
+        },
     ];
     let mut c = Channel::new(9);
     assert_eq!(c.submit(1, GATHER, 2, 16384, 4096), Err(Error::Permission));
@@ -99,7 +110,10 @@ fn gather_wire_round_trips_and_rejects_malformed_runs() {
     assert_eq!(n, BYTES + 16);
     assert!(c.fetch_encoded(&mut payload).is_none());
     let (r, s) = decode_fetch(&payload[..n]).unwrap();
-    assert_eq!((r.operation, r.lba, r.bytes, r.buffer), (GATHER, 2, 16384, 4096));
+    assert_eq!(
+        (r.operation, r.lba, r.bytes, r.buffer),
+        (GATHER, 2, 16384, 4096)
+    );
     assert_eq!(s.as_slice(), &runs);
     assert_eq!(c.segments(), &runs);
     for bad in [&payload[..n - 8], &payload[..n + 8], &payload[..BYTES]] {
@@ -124,8 +138,14 @@ fn gather_wire_round_trips_and_rejects_malformed_runs() {
         &too_long[..],
         &[Segment { lba: 0, pages: 0 }][..],
         &[Segment { lba: 0, pages: 65 }][..],
-        &[Segment { lba: 0, pages: 64 }, Segment { lba: 512, pages: 1 }][..],
-        &[Segment { lba: 1 << 48, pages: 1 }][..],
+        &[
+            Segment { lba: 0, pages: 64 },
+            Segment { lba: 512, pages: 1 },
+        ][..],
+        &[Segment {
+            lba: 1 << 48,
+            pages: 1,
+        }][..],
     ] {
         assert!(Segments::new(bad).is_err());
         assert!(c.submit_gather(1, bad, 4096).is_err());
@@ -172,7 +192,9 @@ fn gate_submit_copies_entries_then_publishes_and_rings_the_tail() {
     assert!(reply.payload.iter().all(|b| *b == 0));
     let sq = dma_region(2).unwrap().0 as usize;
     let s = r.0.borrow();
-    assert!(s.memory[sq + 31 * 64..sq + 32 * 64].iter().all(|b| *b == 0x11));
+    assert!(s.memory[sq + 31 * 64..sq + 32 * 64]
+        .iter()
+        .all(|b| *b == 0x11));
     assert!(s.memory[sq..sq + 64].iter().all(|b| *b == 0x22));
     assert!(s.memory[sq + 64..sq + 31 * 64].iter().all(|b| *b == 0));
     assert_eq!(s.fences, 1);
@@ -200,14 +222,18 @@ fn gate_reap_copies_owned_entries_across_wrap_and_acknowledges_once() {
     assert_eq!(reply.length, 48);
     assert_eq!(reply.value, 777);
     assert_eq!(reply.offset, 0);
-    let cid = |i: usize| u16::from_le_bytes([reply.payload[i * 16 + 12], reply.payload[i * 16 + 13]]);
+    let cid =
+        |i: usize| u16::from_le_bytes([reply.payload[i * 16 + 12], reply.payload[i * 16 + 13]]);
     assert_eq!([cid(0), cid(1), cid(2)], [4, 5, 6]);
     assert!(reply.payload[48..].iter().all(|b| *b == 0));
     assert_eq!(r.0.borrow().register_writes, [(0x100c, 1)]);
-    assert_eq!(r.0.borrow().cq_order, [
-        "phase", "fence", "body", "phase", "fence", "body",
-        "phase", "fence", "body", "phase", "fence",
-    ]);
+    assert_eq!(
+        r.0.borrow().cq_order,
+        [
+            "phase", "fence", "body", "phase", "fence", "body", "phase", "fence", "body", "phase",
+            "fence",
+        ]
+    );
     assert!(r.0.borrow().register_reads.is_empty());
     // Nothing owned: no acknowledgement, CSTS returned for fatal-status checks.
     let reply = g

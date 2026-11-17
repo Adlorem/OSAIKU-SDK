@@ -20,39 +20,100 @@ pub enum ReplyError {
 /// Success is final. Clock failure/backwards time and a stalled-clock fuse stop
 /// retries; no path may resend an accepted message.
 pub fn send_with_backpressure(
+    send: impl FnMut() -> isize,
+    checkpoint: impl FnMut() -> isize,
+    clock: impl FnMut() -> Result<u64, isize>,
+) -> isize {
+    send_with_backpressure_report(send, checkpoint, clock).status
+}
+
+/// Failure provenance without message contents. Elapsed time is the last
+/// successful observation, not time spent inside a failed syscall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SendReport {
+    pub status: isize,
+    pub last_send: isize,
+    pub stage: &'static str,
+    pub attempts: u32,
+    pub elapsed_ms: Option<u64>,
+}
+
+impl SendReport {
+    /// Two bounded metadata-only lines; hex statuses preserve native bit patterns.
+    pub fn diagnostic(
+        &self,
+        out: &mut impl core::fmt::Write,
+        part: usize,
+        peer: u64,
+        kind: u64,
+        id: u64,
+    ) -> core::fmt::Result {
+        if part == 0 {
+            write!(out,"ipc-failure:v1;p={peer:016x};k={kind:x};id={id:016x};stage={};s={:016x};send={:016x}",self.stage,self.status as u64,self.last_send as u64)
+        } else {
+            write!(
+                out,
+                "ipc-attempts:v1;p={peer:016x};id={id:016x};n={:x};ms={:016x};valid={}",
+                self.attempts,
+                self.elapsed_ms.unwrap_or(0),
+                u8::from(self.elapsed_ms.is_some())
+            )
+        }
+    }
+}
+
+pub fn send_with_backpressure_report(
     mut send: impl FnMut() -> isize,
     mut checkpoint: impl FnMut() -> isize,
     mut clock: impl FnMut() -> Result<u64, isize>,
-) -> isize {
+) -> SendReport {
     let first = send();
+    let mut report = SendReport {
+        status: first,
+        last_send: first,
+        stage: "send",
+        attempts: 1,
+        elapsed_ms: None,
+    };
+    macro_rules! finish {
+        ($status:expr, $stage:expr) => {{
+            report.status = $status;
+            report.stage = $stage;
+            return report;
+        }};
+    }
     if first != crate::abi::SYSCALL_ERR_MAILBOX_FULL {
-        return first;
+        return report;
     }
     let start = match clock() {
         Ok(now) => now,
-        Err(code) => return code,
+        Err(code) => finish!(code, "initial-clock"),
     };
+    report.elapsed_ms = Some(0);
     let mut previous = start;
     for _ in 0..65_536 {
         let yielded = checkpoint();
         if yielded != SYSCALL_OK {
-            return yielded;
+            finish!(yielded, "checkpoint");
         }
         let now = match clock() {
             Ok(now) if now >= previous => now,
-            Ok(_) => return crate::abi::SYSCALL_ERR_INVALID_STATE,
-            Err(code) => return code,
+            Ok(_) => finish!(crate::abi::SYSCALL_ERR_INVALID_STATE, "backwards-clock"),
+            Err(code) => finish!(code, "clock"),
         };
+        report.elapsed_ms = Some(now - start);
         if now - start >= 2_000 {
-            return crate::abi::SYSCALL_ERR_TIMEOUT;
+            finish!(crate::abi::SYSCALL_ERR_TIMEOUT, "deadline");
         }
         previous = now;
         let result = send();
+        report.attempts += 1;
+        report.last_send = result;
         if result != crate::abi::SYSCALL_ERR_MAILBOX_FULL {
-            return result;
+            finish!(result, "send");
         }
     }
-    crate::abi::SYSCALL_ERR_TIMEOUT
+    finish!(crate::abi::SYSCALL_ERR_TIMEOUT, "attempt-limit");
 }
 
 /// Send once, then hand off only after a successful send. Never retry either
@@ -135,6 +196,83 @@ impl ReceiveMode {
 mod tests {
     use super::*;
     use crate::{abi::MAX_IPC_MESSAGE_LEN, process::ProcessId};
+
+    #[test]
+    fn failure_diagnostic_fits_log_syscall_at_numeric_extremes() {
+        extern crate std;
+        for stage in [
+            "send",
+            "reserved-reply",
+            "checkpoint",
+            "initial-clock",
+            "clock",
+            "backwards-clock",
+            "deadline",
+            "attempt-limit",
+        ] {
+            let report = SendReport {
+                status: isize::MIN,
+                last_send: isize::MAX,
+                stage,
+                attempts: u32::MAX,
+                elapsed_ms: Some(u64::MAX),
+            };
+            for part in 0..2 {
+                let mut line = std::string::String::new();
+                report
+                    .diagnostic(&mut line, part, u64::MAX, u64::MAX, u64::MAX)
+                    .unwrap();
+                assert!(
+                    line.len() <= crate::abi::MAX_LOG_WRITE_LEN,
+                    "{} bytes: {}",
+                    line.len(),
+                    line
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn failure_report_preserves_origin_and_last_send() {
+        let full = crate::abi::SYSCALL_ERR_MAILBOX_FULL;
+        for (checkpoint, readings, stage, status, elapsed) in [
+            (-99, [Ok(10), Ok(11)], "checkpoint", -99, Some(0)),
+            (0, [Err(-98), Ok(11)], "initial-clock", -98, None),
+            (0, [Ok(10), Err(-97)], "clock", -97, Some(0)),
+            (
+                0,
+                [Ok(10), Ok(9)],
+                "backwards-clock",
+                crate::abi::SYSCALL_ERR_INVALID_STATE,
+                Some(0),
+            ),
+            (
+                0,
+                [Ok(10), Ok(2010)],
+                "deadline",
+                crate::abi::SYSCALL_ERR_TIMEOUT,
+                Some(2000),
+            ),
+        ] {
+            let mut clock = readings.into_iter();
+            let report =
+                send_with_backpressure_report(|| full, || checkpoint, || clock.next().unwrap());
+            assert_eq!(
+                report,
+                SendReport {
+                    status,
+                    last_send: full,
+                    stage,
+                    attempts: 1,
+                    elapsed_ms: elapsed
+                }
+            );
+        }
+        let report = send_with_backpressure_report(|| full, || 0, || Ok(u64::MAX));
+        assert_eq!(report.stage, "attempt-limit");
+        assert_eq!(report.attempts, 65_537);
+        assert_eq!(report.last_send, full);
+    }
 
     #[test]
     fn backpressure_allows_peer_to_run_without_duplicate_delivery() {

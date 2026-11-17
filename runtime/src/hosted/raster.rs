@@ -18,6 +18,8 @@ struct Scratch {
     band: [u8; MAX_TRANSFER],
     dirty: DirtyTracker,
     gpu_commands: [crate::gpu_painter::Command; crate::gpu_painter::COMMAND_CAPACITY],
+    #[cfg(target_os = "none")]
+    shared: super::shared::Pool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,16 +42,34 @@ unsafe impl Sync for HostedRaster {}
 impl HostedRaster {
     /// Decorate the same recipe that will be sealed and published. Reuse the
     /// guarded raster scratch rather than placing a Document on a native stack.
-    pub fn prepare_tooltips(&self, wire: &mut [u8], len: usize, width: u32, height: u32,
-        state: &mut osaiku_ui::tooltip::State) -> Result<usize, Error> {
-        if self.busy.swap(true, Ordering::Acquire) { return Err(Error::Stale); }
+    pub fn prepare_tooltips(
+        &self,
+        wire: &mut [u8],
+        len: usize,
+        width: u32,
+        height: u32,
+        state: &mut osaiku_ui::tooltip::State,
+    ) -> Result<usize, Error> {
+        if self.busy.swap(true, Ordering::Acquire) {
+            return Err(Error::Stale);
+        }
         struct Guard<'a>(&'a AtomicBool);
-        impl Drop for Guard<'_> { fn drop(&mut self) { self.0.store(false, Ordering::Release); } }
+        impl Drop for Guard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::Release);
+            }
+        }
         let _guard = Guard(&self.busy);
         // SAFETY: the guard uniquely owns scratch until encoding finishes.
         let scratch = unsafe { &mut *self.scratch.get() };
         Document::decode_into(wire.get(..len).ok_or(Error::Buffer)?, &mut scratch.document)?;
-        Layout::compute_in(&scratch.document, width, height, &mut scratch.layout_workspace, &mut scratch.layout)?;
+        Layout::compute_in(
+            &scratch.document,
+            width,
+            height,
+            &mut scratch.layout_workspace,
+            &mut scratch.layout,
+        )?;
         state.apply(&mut scratch.document, &scratch.layout);
         scratch.document.encode(wire)
     }
@@ -63,7 +83,10 @@ impl HostedRaster {
                 metadata: Publication::EMPTY,
                 band: [0; MAX_TRANSFER],
                 dirty: DirtyTracker::new(),
-                gpu_commands: [crate::gpu_painter::Command::EMPTY; crate::gpu_painter::COMMAND_CAPACITY],
+                gpu_commands: [crate::gpu_painter::Command::EMPTY;
+                    crate::gpu_painter::COMMAND_CAPACITY],
+                #[cfg(target_os = "none")]
+                shared: super::shared::Pool::new(),
             }),
         }
     }
@@ -132,65 +155,89 @@ impl HostedRaster {
         .with_theme(theme)
         .with_accent(accent)
         .with_images(images);
-        if let Some(handle)=super::gpu::publish(&scene,offer,wire,&mut scratch.metadata,&mut scratch.gpu_commands,&mut exchange,&mut checkpoint)? {
-            scratch.dirty.base=None;
-            return Ok(handle);
-        }
-        // Take before modifying fingerprints: every unsuccessful path loses the
-        // base. Geometry includes epoch/incarnation, resize, palette and chrome.
-        let previous = scratch.dirty.base.take().filter(|b| {
-            b.frame.geometry == offer.geometry && b.handle.revision < offer.request.revision
-        });
-        let mut producer = SurfacePublisher::tracked(
+        if let Some(handle) = super::gpu::publish(
             &scene,
             offer,
-            previous.map(|p| p.handle),
-            &mut scratch.dirty,
+            wire,
             &mut scratch.metadata,
-            &mut scratch.band,
-        )
-        .map_err(RasterError::Publish)?;
-        producer
-            .bind_source_hash(osaiku_ui::wire_hash(wire))
-            .map_err(RasterError::Publish)?;
-        let mut retries = 8;
-        let mut uploaded_since_checkpoint = 0;
-        let error = loop {
-            match producer.step_with(&mut exchange) {
-                Ok(PublishStep::Sealed { handle }) => {
-                    drop(producer);
-                    scratch.dirty.base = Some(FrameSnapshot {
-                        handle,
-                        frame: offer,
-                    });
-                    return Ok(handle);
-                }
-                Ok(PublishStep::Uploaded { length, .. } | PublishStep::Copied { length, .. }) => {
-                    uploaded_since_checkpoint += length;
-                    if uploaded_since_checkpoint < 256 * 1024 {
-                        continue;
-                    }
-                }
-                Ok(PublishStep::Begun { .. }) => {}
-                Err(PublishError::Transport(SYSCALL_ERR_BUSY)) if retries != 0 => retries -= 1,
-                Err(PublishError::Transport(SYSCALL_ERR_STALE_ENDPOINT))
-                    if producer.fallback_full() =>
-                {
-                    continue
-                }
-                Err(error) => break RasterError::Publish(error),
-            }
-            uploaded_since_checkpoint = 0;
-            if let Err(code) = checkpoint() {
-                break RasterError::Checkpoint(code);
-            }
-        };
-        if producer.handle().is_some() {
-            producer
-                .cancel_with(exchange)
-                .map_err(RasterError::Publish)?;
+            &mut scratch.gpu_commands,
+            &mut exchange,
+            &mut checkpoint,
+        )? {
+            scratch.dirty.base = None;
+            return Ok(handle);
         }
-        Err(error)
+        #[cfg(target_os = "none")]
+        return super::shared::publish(
+            &mut scratch.shared,
+            &scene,
+            offer,
+            wire,
+            &mut scratch.metadata,
+            &mut scratch.dirty,
+            &mut exchange,
+            &mut checkpoint,
+        );
+        #[cfg(not(target_os = "none"))]
+        {
+            // Take before modifying fingerprints: every unsuccessful path loses the
+            // base. Geometry includes epoch/incarnation, resize, palette and chrome.
+            let previous = scratch.dirty.base.take().filter(|b| {
+                b.frame.geometry == offer.geometry && b.handle.revision < offer.request.revision
+            });
+            let mut producer = SurfacePublisher::tracked(
+                &scene,
+                offer,
+                previous.map(|p| p.handle),
+                &mut scratch.dirty,
+                &mut scratch.metadata,
+                &mut scratch.band,
+            )
+            .map_err(RasterError::Publish)?;
+            producer
+                .bind_source_hash(osaiku_ui::wire_hash(wire))
+                .map_err(RasterError::Publish)?;
+            let mut retries = 8;
+            let mut uploaded_since_checkpoint = 0;
+            let error = loop {
+                match producer.step_with(&mut exchange) {
+                    Ok(PublishStep::Sealed { handle }) => {
+                        drop(producer);
+                        scratch.dirty.base = Some(FrameSnapshot {
+                            handle,
+                            frame: offer,
+                        });
+                        return Ok(handle);
+                    }
+                    Ok(
+                        PublishStep::Uploaded { length, .. } | PublishStep::Copied { length, .. },
+                    ) => {
+                        uploaded_since_checkpoint += length;
+                        if uploaded_since_checkpoint < 256 * 1024 {
+                            continue;
+                        }
+                    }
+                    Ok(PublishStep::Begun { .. }) => {}
+                    Err(PublishError::Transport(SYSCALL_ERR_BUSY)) if retries != 0 => retries -= 1,
+                    Err(PublishError::Transport(SYSCALL_ERR_STALE_ENDPOINT))
+                        if producer.fallback_full() =>
+                    {
+                        continue
+                    }
+                    Err(error) => break RasterError::Publish(error),
+                }
+                uploaded_since_checkpoint = 0;
+                if let Err(code) = checkpoint() {
+                    break RasterError::Checkpoint(code);
+                }
+            };
+            if producer.handle().is_some() {
+                producer
+                    .cancel_with(exchange)
+                    .map_err(RasterError::Publish)?;
+            }
+            Err(error)
+        }
     }
 }
 

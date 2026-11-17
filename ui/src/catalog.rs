@@ -90,7 +90,9 @@ pub struct Binding {
 }
 impl Binding {
     pub fn accepts(self, kind: Kind) -> bool {
-        if kind == Kind::Tooltip && self.slot == 5 { return false; }
+        if kind == Kind::Tooltip && self.slot == 5 {
+            return false;
+        }
         match self.data_type {
             DataType::Text => !kind.container(),
             DataType::Percent => matches!(kind, Kind::ValueBar | Kind::Slider),
