@@ -22,9 +22,12 @@ pub mod files;
 pub mod gpu_timing;
 pub mod graphics;
 pub mod gpu_painter;
+pub mod gpu_client;
+pub mod gpu_compositor;
 pub mod bcs;
 pub mod hosted;
 pub mod ipc;
+pub mod reply_slot;
 pub mod network;
 pub mod wifi;
 pub mod launch;
@@ -45,6 +48,7 @@ pub mod session;
 pub mod status_client;
 pub mod status_snapshot;
 pub mod surface;
+pub mod window_buffer;
 pub mod window;
 pub mod window_status;
 
@@ -57,3 +61,5 @@ pub mod devices;
 pub mod package_service;
 
 pub mod picker;
+
+pub use osaiku_gpu_runtime::measurement;

@@ -7,6 +7,9 @@ pub const PROPOSE_ENABLE: u64 = 2;
 pub const PROPOSE_BINDING: u64 = 3;
 pub const PROPOSE_ROLLBACK: u64 = 4;
 pub const EVENTS: usize = 64;
+pub const READ_GPU: u64 = 5;
+#[path = "devices_gpu.rs"]
+pub mod gpu;
 pub mod state {
     pub const UNBOUND: u64 = 1;
     pub const STARTING: u64 = 2;
@@ -23,6 +26,10 @@ pub mod flag {
     pub const SYSTEM: u64 = 8;
     /// Built into the system; it has no independently installable package.
     pub const INTEGRATED: u64 = 16;
+    /// Rendering state is independent of the observed PCI device name.
+    pub const RENDERER_CPU: u64 = 32;
+    pub const RENDERER_GPU: u64 = 64;
+    pub const FIRMWARE_GOP: u64 = 128;
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

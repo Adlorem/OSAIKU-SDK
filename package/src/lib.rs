@@ -30,6 +30,7 @@ pub enum Domain {
     DriverStorage,
     DriverController,
     DriverRepository,
+    DriverGpu,
 }
 impl Domain {
     pub fn magic(self) -> &'static [u8; 8] {
@@ -42,6 +43,7 @@ impl Domain {
             Self::DriverStorage => b"OSADST01",
             Self::DriverController => b"OSADCT01",
             Self::DriverRepository => b"OSADIX01",
+            Self::DriverGpu => b"OSADGP01",
         }
     }
     pub fn signature_domain(self) -> &'static [u8] {
@@ -54,6 +56,7 @@ impl Domain {
             Self::DriverStorage => b"OSAIKU/driver-storage/v1\0",
             Self::DriverController => b"OSAIKU/driver-controller/v1\0",
             Self::DriverRepository => b"OSAIKU/driver-repository-index/v1\0",
+            Self::DriverGpu => b"OSAIKU/driver-gpu/v1\0",
         }
     }
 }

@@ -44,6 +44,7 @@ impl PolicyDocument {
                 6 => Domain::DriverStorage,
                 7 => Domain::DriverController,
                 8 => Domain::DriverRepository,
+                9 => Domain::DriverGpu,
                 _ => return Err(Error::Policy),
             };
             if r[33] > 1 {

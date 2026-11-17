@@ -6,6 +6,7 @@ license.workspace = true
 description = "Bounded application package and repository verification, without allocation or I/O"
 
 [dependencies]
+osaiku-gpu-protocol = { path = "../gpu-protocol" }
 sha2 = { version = "=0.10.9", default-features = false }
 ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["fast", "zeroize"] }
 

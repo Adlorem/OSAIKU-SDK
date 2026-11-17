@@ -5,6 +5,8 @@ use crate::{compat::*, lifecycle::*, window::*};
 mod gpu;
 mod raster;
 mod surface;
+#[cfg(target_os="none")]
+mod shared;
 pub use raster::{HostedRaster, RasterError};
 
 pub use crate::compat::{

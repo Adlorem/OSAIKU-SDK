@@ -11,6 +11,16 @@ new magic/domain; application v1/v2 serialization is unchanged.
 The public authoring tool is `tools/package.py`; `package-check` is built from
 this SDK alone (`cargo build -p osaiku-package --example package-check`).
 
+[Manifest v3](driver-packages-v3.md) optionally embeds the signing public key
+with `driver.include_public_key = true`. The host can then request trust and
+installation in one protected confirmation; a separate `.osadkey` is optional.
+
+GPU manifest v2 is specified in [GPU packages](gpu-packages-v2.md). It preserves
+this envelope and v1 behavior, adds named backend/renderer ELF components,
+revision ranges and the independent DriverGpu publisher scope. The current
+OS does not yet advertise the required GPU platform protocols or launch those
+components; format support is not an operational external GPU driver.
+
 ```toml
 [package]
 id = "example.usb-status"

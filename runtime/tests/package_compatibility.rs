@@ -216,6 +216,7 @@ fn unavailable_required_protocol_refuses_but_optional_is_reported_absent() {
             (vec![], false),
             (
                 vec![ProtocolSupport {
+                    features: 0,
                     id: 8,
                     version: REQUIRED.version,
                 }],
@@ -223,6 +224,7 @@ fn unavailable_required_protocol_refuses_but_optional_is_reported_absent() {
             ),
             (
                 vec![ProtocolSupport {
+                    features: 0,
                     id: 7,
                     version: Version { major: 2, minor: 9 },
                 }],
@@ -230,6 +232,7 @@ fn unavailable_required_protocol_refuses_but_optional_is_reported_absent() {
             ),
             (
                 vec![ProtocolSupport {
+                    features: 0,
                     id: 7,
                     version: Version { major: 3, minor: 3 },
                 }],
@@ -237,6 +240,7 @@ fn unavailable_required_protocol_refuses_but_optional_is_reported_absent() {
             ),
             (
                 vec![ProtocolSupport {
+                    features: 0,
                     id: 7,
                     version: REQUIRED.version,
                 }],
@@ -244,6 +248,7 @@ fn unavailable_required_protocol_refuses_but_optional_is_reported_absent() {
             ),
             (
                 vec![ProtocolSupport {
+                    features: 0,
                     id: 7,
                     version: Version { major: 3, minor: 5 },
                 }],
@@ -270,6 +275,7 @@ fn unavailable_required_protocol_refuses_but_optional_is_reported_absent() {
 fn invalid_host_offers_never_mask_missing_requirements() {
     let req = Requirements::decode(&VECTOR).unwrap();
     let offer = ProtocolSupport {
+        features: 0,
         id: REQUIRED.id,
         version: REQUIRED.version,
     };
@@ -278,6 +284,7 @@ fn invalid_host_offers_never_mask_missing_requirements() {
         vec![ProtocolSupport { id: 8, ..offer }, offer],
         vec![ProtocolSupport { id: 0, ..offer }],
         vec![ProtocolSupport {
+            features: 0,
             version: Version { major: 0, minor: 0 },
             ..offer
         }],
@@ -306,6 +313,7 @@ fn maximum_record_and_last_availability_bit_work_without_overflow() {
         .iter()
         .filter(|p| p.id != 2)
         .map(|p| ProtocolSupport {
+            features: 0,
             id: p.id,
             version: p.version,
         })

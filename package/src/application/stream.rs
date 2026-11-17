@@ -100,7 +100,7 @@ impl Verifier {
                     return Err(Error::Digest);
                 }
                 match c.kind() {
-                    1 => elf_header(&self.prefix[..self.prefix_len])?,
+                    1 | 4 | 5 => elf_header(&self.prefix[..self.prefix_len])?,
                     3 => icon_prefix(&self.prefix[..self.prefix_len], c.length())?,
                     _ => {}
                 }
@@ -137,6 +137,7 @@ impl Verifier {
 
 /// Authenticated metadata retained without keeping the complete package in RAM.
 /// This proves package verification, not approval or continued storage ownership.
+#[derive(Clone)]
 pub struct VerifiedManifest {
     domain: Domain,
     metadata: [u8; MAX_METADATA_BYTES],

@@ -8,7 +8,9 @@ use osaiku_runtime::{
 use std::sync::atomic::{AtomicU32, Ordering::*};
 static FAIL: AtomicU32 = AtomicU32::new(0);
 static RESETS: AtomicU32 = AtomicU32::new(0);
+static DRAWS: AtomicU32 = AtomicU32::new(0);
 unsafe extern "C" fn dispatch(c: *mut Command) -> i32 {
+    DRAWS.fetch_add(1, Relaxed);
     let c = unsafe { &mut *c };
     if c.op == 8 {
         RESETS.fetch_add(1, Relaxed);
@@ -60,7 +62,9 @@ fn sdk_gpu_revision_atomicity_context_recreation_and_explicit_cpu_recovery() {
     let mut wire = vec![0; osaiku_ui::MAX_WIRE];
     let n = d.encode(&mut wire).unwrap();
     wire.truncate(n);
-    for phase in 0..4 {
+    // The identical application scene and publication API work when the host
+    // withholds GPU permission, with GPU permission, and after GPU failure.
+    for phase in -1..4 {
         if phase == 2 {
             FAIL.store(1, Relaxed);
         }
@@ -79,15 +83,14 @@ fn sdk_gpu_revision_atomicity_context_recreation_and_explicit_cpu_recovery() {
                 receipt.epoch = req.handle.target.epoch;
                 if req.operation == NEGOTIATE {
                     let q = unsafe { data.as_mut_ptr().cast::<Negotiation>().read_unaligned() };
-                    let selected = q
-                        .resolve(&[Device {
+                    let device = [Device {
                             id: 1,
                             generation: if phase>=2 {2}else{1},
                             integrated: true,
                             capabilities: capability::UI,
                             presentation_device: 1,
-                        }])
-                        .unwrap();
+                        }];
+                    let selected = q.resolve(if phase == -1 { &[] } else { &device }).unwrap();
                     gpu_selected = selected.renderer == 1;
                     unsafe {
                         data.as_mut_ptr()
@@ -122,7 +125,11 @@ fn sdk_gpu_revision_atomicity_context_recreation_and_explicit_cpu_recovery() {
         } else {
             assert!(result.is_ok(), "{phase}: {result:?}");
         }
-        if phase < 3 {
+        if phase == -1 {
+            assert_eq!(DRAWS.load(Relaxed),0,"CPU policy must never call the renderer");
+            assert!(operations.contains(&UPLOAD));
+            assert!(!operations.contains(&BEGIN_GPU));
+        } else if phase < 3 {
             assert!(!operations.contains(&UPLOAD));
             assert!(operations.contains(&BEGIN_GPU));
         } else {

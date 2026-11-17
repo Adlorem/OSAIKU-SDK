@@ -30,6 +30,8 @@ pub mod op {
     pub const BLOCK_FETCH: u64 = 15;
     pub const BLOCK_STEP: u64 = 16;
     pub const START_HARDWARE: u64 = 20;
+    /// Initd-only pre-desktop barrier. Scalar result, no user pointer.
+    pub const BOOT_STATUS: u64 = 21;
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {

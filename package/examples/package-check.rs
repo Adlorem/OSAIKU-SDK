@@ -75,6 +75,14 @@ fn run() -> Result<(), String> {
                     driver::classes(package.manifest()).map_err(err)?,
                     package.manifest().permissions()
                 );
+                println!("embedded-public-key={};trust-granted=false",
+                    driver::public_key(package.manifest()).map_err(err)?.is_some());
+                if let Some(gpu) = driver::gpu(package.manifest()).map_err(err)? {
+                    println!("gpu-family={}\nplatform-abi={}.{}\nrenderer-abi={}.{}\nclient-abi={}.{}\nbackend-memory={}\nrenderer-memory={}\nactivation-granted=false",
+                        gpu.family, gpu.platform.major, gpu.platform.minor, gpu.renderer.major,
+                        gpu.renderer.minor, gpu.client.major, gpu.client.minor,
+                        gpu.backend_budget.memory, gpu.renderer_budget.memory);
+                }
             } else {
                 println!("category={}", package.manifest().category_name());
             }

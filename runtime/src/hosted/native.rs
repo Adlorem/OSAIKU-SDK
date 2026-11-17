@@ -133,7 +133,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
             .classify(sender, &bytes[..received as usize])
             .unwrap_or_else(|_| process_exit(22));
         match message {
-            ApplicationMessage::Report => send(sender, APPLICATION_REPLY_RUNNING, true),
+            ApplicationMessage::Report => send(sender, APPLICATION_REPLY_RUNNING, true, 0, 0),
             ApplicationMessage::Exit => {
                 if let Some(mut page) = session.take() {
                     page.value_mut().app.closing();
@@ -153,6 +153,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 }
                 // SAFETY: run's process-wide guard uniquely owns WIRE forever.
                 let wire = unsafe { &mut *WIRE.0.get() };
+                let decline_code = core::cell::Cell::new(1000i64);
                 let offer = if SURFACES {
                     match state.window.frame_offer_with(
                         &request,
@@ -178,6 +179,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 } else {
                     None
                 };
+                if offer.is_some() || !SURFACES { decline_code.set(2000); }
                 let len = if let Some(offer) = offer.as_ref() {
                     Some(super::render_offered(&mut state.app, offer, wire))
                 } else if !SURFACES {
@@ -190,10 +192,15 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                         .map_err(|error| log_present_failure(app_id, "render", &error))
                         .ok()
                 })
-                .filter(|len| *len > 0 && *len <= wire.len());
+                .filter(|len| {
+                    let valid = *len > 0 && *len <= wire.len();
+                    if !valid { decline_code.set(3000); }
+                    valid
+                });
                 let len = len.and_then(|len| {
                     if state.app.tooltips() && state.tooltip.active() {
                         if let Some(offer) = offer.as_ref() {
+                            decline_code.set(4000);
                             return RASTER.prepare_tooltips(wire, len, offer.geometry.content.width,
                                 offer.geometry.content.height, &mut state.tooltip)
                                 .map_err(|e| log_present_failure(app_id, "tooltip", &e)).ok();
@@ -203,6 +210,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 });
                 let sealed = if SURFACES {
                     len.and_then(|len| {
+                        decline_code.set(4000);
                         let result = RASTER.publish_with_images(
                             offer?,
                             &wire[..len],
@@ -241,6 +249,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                 let accepted = len
                     .filter(|_| !SURFACES || sealed.is_some())
                     .and_then(|len| {
+                        decline_code.set(3000);
                         let frame = UiDocumentWindowContentFrame::for_ui(&request, &wire[..len])?;
                         // Bound backpressure; a refusal leaves the previous view.
                         let mut result = SYSCALL_ERR_BUSY;
@@ -254,6 +263,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                             }
                         }
                         if result != UI_DOCUMENT_WINDOW_CHANNEL_STATUS_OK as isize {
+                            decline_code.set(5000 + result.unsigned_abs().min(999) as i64);
                             log_present_failure(app_id, "submit", &result);
                         }
                         (result == UI_DOCUMENT_WINDOW_CHANNEL_STATUS_OK as isize).then_some(())
@@ -292,10 +302,10 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                     }
                     state.dirty = state.model_changed;
                     state.app.submitted(state.current);
-                    send(sender, &status.encode(), false);
+                    send(sender, &status.encode(), false, 1, request.request_id);
                 } else {
                     state.app.submission_refused();
-                    send(sender, &ui_content_declined(&request), false);
+                    send(sender, &ui_content_declined_with_code(&request, decline_code.get()), false, 1, request.request_id);
                 }
             }
             ApplicationMessage::Teardown(payload) => {
@@ -343,7 +353,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                     }
                 }
                 .unwrap_or_else(|| process_exit(54));
-                send(sender, &receipt.encode(), true);
+                send(sender, &receipt.encode(), true, 2, notice.as_ref().map_or(0, |n|n.notice_id));
             }
             ApplicationMessage::Other(payload) if payload.len() == DOCUMENT_EDITOR_COMMAND_SIZE => {
                 let command = WindowCommand::decode(payload).unwrap_or_else(|| process_exit(31));
@@ -475,7 +485,7 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                         reason,
                     )
                 };
-                send(sender, &response.encode(), false);
+                send(sender, &response.encode(), false, 0x100 + u64::from(command.command_kind), command.command_id);
             }
             ApplicationMessage::Other(payload) => {
                 let mut response = [0; MAX_IPC_MESSAGE_LEN];
@@ -485,8 +495,8 @@ fn run_impl<A: WindowApplication, const SURFACES: bool>() -> ! {
                         .host_message(sender, payload, &mut response)
                 });
                 match length.filter(|n| *n > 0 && *n <= response.len()) {
-                    Some(n) => send(sender, &response[..n], true),
-                    None => send(sender, APPLICATION_REPLY_INVALID_COMMAND, true),
+                    Some(n) => send(sender, &response[..n], true, 3, 0),
+                    None => send(sender, APPLICATION_REPLY_INVALID_COMMAND, true, 4, 0),
                 }
                 clear(&mut response);
             }
@@ -508,10 +518,16 @@ fn log_present_failure(app: u64, stage: &str, error: &impl core::fmt::Debug) {
     }
 }
 
-fn send(target: ProcessEndpoint, bytes: &[u8], handoff: bool) {
-    if crate::ipc::send_with_backpressure(|| ipc_send(target, bytes), scheduler_yield, monotonic_ms)
-        != SYSCALL_OK
-    {
+fn send(target: ProcessEndpoint, bytes: &[u8], handoff: bool, kind:u64, id:u64) {
+    let report = crate::ipc::send_with_backpressure_report(|| unsafe {crate::reply_slot::send_application_with_metadata(target, bytes,kind,id)}, scheduler_yield, monotonic_ms);
+    if report.status == crate::reply_slot::CLOSED {return;}
+    if report.status != SYSCALL_OK {
+        for part in 0..2 {
+            let mut line = osaiku_ui::text_model::Text::EMPTY;
+            if report.diagnostic(&mut line,part,target.encode(),kind,id).is_ok() {
+                let _ = crate::log_write(line.as_str());
+            }
+        }
         process_exit(32);
     }
     let result = if handoff {
