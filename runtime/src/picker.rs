@@ -11,7 +11,21 @@ pub const REPLACE: u64 = 5;
 pub const CREATE: u64 = 6;
 /// Retired model chooser operation; always refused.
 pub const OPEN_MODEL: u64 = 7;
+/// Start replacing the scope's file with more than one request holds:
+/// `offset` is the replacement's whole length (over CAPACITY, at most
+/// MAX_REPLACE), with no bytes. Any earlier staged replacement of the same
+/// application is abandoned.
+pub const BEGIN_REPLACE: u64 = 8;
+/// The next part of a staged replacement at `offset`, the bytes written so
+/// far. The part that completes the declared length commits the file at once,
+/// as one REPLACE would; a part out of order abandons it. CANCEL of the token
+/// abandons it too, and leaves the file as it was.
+pub const WRITE: u64 = 9;
+/// The chosen file's name (at most 64 bytes) for a live scope, so an editor
+/// can title its tab. A pending choice answers 1; it names no path.
+pub const NAME: u64 = 10;
 pub const CAPACITY: usize = 4096;
+pub const MAX_REPLACE: u64 = 16 * 1024 * 1024;
 /// Authenticated host delivery of a READ scope, already bound by the broker.
 /// Receiving these bytes from another app never authorizes an open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,7 +141,7 @@ impl Request {
                         && self.length == 0
                         && self.bytes == [0; CAPACITY]
                 }
-                STATUS | CANCEL => {
+                STATUS | CANCEL | NAME => {
                     self.token != 0
                         && self.rights == 0
                         && self.offset == 0
@@ -144,6 +158,21 @@ impl Request {
                     self.token != 0
                         && self.rights == 0
                         && self.offset == 0
+                        && self.bytes[self.length as usize..].iter().all(|b| *b == 0)
+                }
+                BEGIN_REPLACE => {
+                    self.token != 0
+                        && self.rights == 0
+                        && self.offset > CAPACITY as u64
+                        && self.offset <= MAX_REPLACE
+                        && self.length == 0
+                        && self.bytes == [0; CAPACITY]
+                }
+                WRITE => {
+                    self.token != 0
+                        && self.rights == 0
+                        && self.length != 0
+                        && self.offset < MAX_REPLACE
                         && self.bytes[self.length as usize..].iter().all(|b| *b == 0)
                 }
                 _ => false,
@@ -178,7 +207,9 @@ impl Reply {
             && self.length <= CAPACITY as u64
             && self.bytes[self.length as usize..].iter().all(|b| *b == 0)
             && (self.status == 0 || self.length == 0)
-            && ((r.operation == READ && self.length <= r.length) || self.length == 0)
+            && ((r.operation == READ && self.length <= r.length)
+                || (r.operation == NAME && self.length <= 64)
+                || self.length == 0)
     }
 }
 /// Borrowed wire workspace for small-stack native applications. No payload
@@ -226,4 +257,65 @@ pub fn exchange(r: &Request) -> Result<Reply, isize> {
     let mut out = Reply::EMPTY;
     exchange_into(r, &mut out)?;
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate std;
+    use std::boxed::Box;
+
+    fn request(operation: u64) -> Box<Request> {
+        let mut r = Box::new(Request::EMPTY);
+        r.operation = operation;
+        r.window = 4;
+        r.incarnation = 2;
+        r.token = 9;
+        r.rights = 0;
+        r
+    }
+    #[test]
+    fn staged_replacement_parts_have_one_shape() {
+        let mut begin = request(BEGIN_REPLACE);
+        begin.offset = CAPACITY as u64 + 1;
+        assert!(begin.canonical());
+        // A replacement one request holds uses REPLACE; bytes and lengths
+        // never ride along with BEGIN_REPLACE.
+        begin.offset = CAPACITY as u64;
+        assert!(!begin.canonical());
+        begin.offset = MAX_REPLACE + 1;
+        assert!(!begin.canonical());
+        begin.offset = MAX_REPLACE;
+        begin.length = 1;
+        assert!(!begin.canonical());
+        let mut part = request(WRITE);
+        part.offset = 8192;
+        part.length = 3;
+        part.bytes[..3].copy_from_slice(b"abc");
+        assert!(part.canonical());
+        part.length = 0;
+        assert!(!part.canonical());
+        part.length = 2;
+        assert!(!part.canonical(), "bytes past the length");
+        part.length = 3;
+        part.token = 0;
+        assert!(!part.canonical());
+    }
+    #[test]
+    fn a_name_reply_carries_at_most_a_name() {
+        let r = request(NAME);
+        assert!(r.canonical());
+        let mut reply = Box::new(Reply::EMPTY);
+        reply.sequence = r.sequence;
+        reply.token = r.token;
+        reply.length = 11;
+        reply.bytes[..11].copy_from_slice(b"notatka.txt");
+        assert!(reply.valid_for(&r));
+        reply.length = 65;
+        assert!(!reply.valid_for(&r));
+        // Other operations still answer without bytes.
+        let status = request(STATUS);
+        reply.length = 11;
+        assert!(!reply.valid_for(&status));
+    }
 }

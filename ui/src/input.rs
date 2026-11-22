@@ -1,5 +1,5 @@
 //! Bounded owner event queue. Admission never grants input authority.
-use crate::{Action, Document, Error, Identity};
+use crate::{layout::Rect, Action, Document, Error, Identity};
 pub const CAPACITY: usize = 16;
 
 pub const ACTIVATE: u32 = 1;
@@ -12,6 +12,39 @@ pub const ERASE: u32 = 5;
 pub const VALUE: u32 = 6;
 /// Enter (1) or leave/dismiss (0) a help icon. No motion coordinates or action.
 pub const HOVER: u32 = 7;
+/// A press on a `ui-text-area`'s lines: the byte offset in its shown part
+/// nearest to the pointer. The application moves its caret there and takes
+/// focus; the host never edits the text.
+pub const CARET: u32 = 8;
+/// The pointer dragged over a `ui-text-area` after a press: the offset the
+/// selection now runs to from where the press put the caret.
+pub const SELECT: u32 = 9;
+/// An editing key for the focused `ui-text-area`: `text_area::edit` values.
+pub const EDIT: u32 = 10;
+/// A keyboard command for a menu item in a closed menu (its accelerator).
+/// It carries the item's action; applications treat it as an activation.
+pub const COMMAND: u32 = 11;
+
+/// Platform editing commands, by the action a control declares to take one:
+/// the keyboard sends `Key::Shortcut(symbol(COMMANDS[i]))`. A visible control
+/// with that action takes it, or else a menu item in a closed menu.
+pub const COMMANDS: [&str; 15] = [
+    "undo",
+    "redo",
+    "find",
+    "replace",
+    "go-to-line",
+    "new",
+    "close-tab",
+    "next-tab",
+    "previous-tab",
+    "find-next",
+    "find-previous",
+    "insert-date",
+    "zoom-in",
+    "zoom-out",
+    "zoom-reset",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u64)]
@@ -43,11 +76,14 @@ struct ScrollCapture {
 }
 /// A pressed slider follows the pointer until release, through new content
 /// revisions of the same window; it reads the slider's current geometry.
+/// A press on a text area's lines selects text by the same rule, and one on
+/// its position strip moves the strip's thumb.
 #[derive(Clone, Copy)]
 struct SliderCapture {
     target: Identity,
     element: u32,
     last: i32,
+    kind: u32,
 }
 /// A scroll gesture may follow new content revisions of the same window, but
 /// never a new owner/incarnation, another element, or changed track geometry.
@@ -110,17 +146,18 @@ impl Pointer {
                 return self.scroll(view, scene, target, y);
             }
             let event = pointer_event(view, scene, target, x, y);
-            if let Some(e) = event.filter(|e| e.kind == VALUE) {
+            if let Some(e) = event.filter(|e| matches!(e.kind, VALUE | CARET)) {
                 self.slider = Some(SliderCapture {
                     target,
                     element: e.element,
                     last: e.value,
+                    kind: if e.kind == CARET { SELECT } else { VALUE },
                 });
             }
             return event;
         }
         let result = if self.slider.is_some() {
-            self.slide(view, scene, target, x)
+            self.slide(view, scene, target, x, y)
         } else {
             self.scroll(view, scene, target, y)
         };
@@ -135,6 +172,7 @@ impl Pointer {
         scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
         target: Identity,
         x: i32,
+        y: i32,
     ) -> Option<Event> {
         let mut capture = self.slider.take()?;
         if (
@@ -153,7 +191,13 @@ impl Pointer {
         let index = view.nodes[..view.len as usize]
             .iter()
             .position(|n| n.id == capture.element)?;
-        let event = slider_event(view, scene, target, index, x)?;
+        let event = match (view.nodes[index].kind, capture.kind) {
+            (crate::Kind::TextArea, SELECT) => {
+                area_event(view, scene, target, index, x, y, SELECT)?
+            }
+            (crate::Kind::TextArea, _) => area_strip_event(view, scene, target, index, y)?,
+            _ => slider_event(view, scene, target, index, x)?,
+        };
         // Only a changed position is news to the application.
         let changed = event.value != capture.last;
         capture.last = event.value;
@@ -209,6 +253,9 @@ impl Pointer {
 
 #[derive(Clone, Copy)]
 pub enum Key {
+    /// A `text_area::edit` value: for a focused text area only, except that
+    /// Up and Down also move between the items of an open menu.
+    Edit(i32),
     Next,
     Previous,
     Activate,
@@ -264,14 +311,59 @@ pub fn key_event(
                                 *i != m && crate::layout::Layout::popup_of(view, *i) == Some(m)
                             })
                     });
-            let (_, node) = candidates.next()?;
-            if candidates.next().is_some() {
-                // Ambiguous commands must not select an arbitrary recipient.
-                return None;
+            if let Some((_, node)) = candidates.next() {
+                if candidates.next().is_some() {
+                    // Ambiguous commands must not select an arbitrary recipient.
+                    return None;
+                }
+                event.element = node.id;
+                event.kind = ACTIVATE;
+                event.action = action;
+            } else {
+                // A menu item in a closed menu keeps its accelerator. An open
+                // menu or dialog holds the keyboard, as it holds the pointer.
+                if modal.is_some() {
+                    return None;
+                }
+                let mut items = (0..view.len as usize)
+                    .filter(|i| view.nodes[*i].action == action && in_closed_menu(view, *i));
+                let index = items.next()?;
+                if items.next().is_some() {
+                    return None;
+                }
+                event.element = view.nodes[index].id;
+                event.kind = COMMAND;
+                event.action = action;
             }
-            event.element = node.id;
-            event.kind = ACTIVATE;
-            event.action = action;
+        }
+        Key::Edit(value) => {
+            let area = focused.filter(|i| view.nodes[*i].kind == crate::Kind::TextArea);
+            if let Some(index) = area {
+                event.element = view.nodes[index].id;
+                event.kind = EDIT;
+                event.value = value;
+            } else {
+                let key = crate::text_area::edit::key(value);
+                if modal.is_none() || !matches!(key, 3 | 4) {
+                    return None;
+                }
+                let index = layout.focus_next(view, focused, key == 3)?;
+                event.element = view.nodes[index].id;
+                event.kind = FOCUS;
+            }
+        }
+        Key::Activate | Key::Next | Key::PageUp | Key::PageDown
+            if focused.is_some_and(|i| view.nodes[i].kind == crate::Kind::TextArea) =>
+        {
+            use crate::text_area::edit;
+            event.element = view.nodes[focused?].id;
+            event.kind = EDIT;
+            event.value = match key {
+                Key::Activate => edit::NEWLINE,
+                Key::Next => edit::TAB,
+                Key::PageUp => edit::PAGE_UP,
+                _ => edit::PAGE_DOWN,
+            };
         }
         Key::Next | Key::Previous => {
             let index = layout.focus_next(view, focused, matches!(key, Key::Previous))?;
@@ -283,7 +375,12 @@ pub fn key_event(
         }
         Key::Character(c)
             if c != ' '
-                || focused.is_some_and(|i| view.nodes[i].kind == crate::Kind::TextInput) =>
+                || focused.is_some_and(|i| {
+                    matches!(
+                        view.nodes[i].kind,
+                        crate::Kind::TextInput | crate::Kind::TextArea
+                    )
+                }) =>
         {
             event.element = view.nodes[focused?].id;
             event.kind = TEXT;
@@ -401,6 +498,11 @@ pub fn pointer_event(
     if view.nodes[index].kind == crate::Kind::Slider {
         return slider_event(view, scene, target, index, x);
     }
+    if view.nodes[index].kind == crate::Kind::TextArea {
+        return area_strip_event(view, scene, target, index, y)
+            .filter(|_| area_strip_holds(view, scene, index, x, y))
+            .or_else(|| area_event(view, scene, target, index, x, y, CARET));
+    }
     // A pointer press enters a text field; only keyboard activation submits
     // its action. Sharing activation here made rename/search fields submit
     // as soon as the user clicked them to edit.
@@ -444,6 +546,119 @@ fn slider_event(
     };
     event.validate(target, view).ok()?;
     Some(event)
+}
+/// The content box of text area `index` and its strip geometry, while enabled.
+fn area_geometry(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    index: usize,
+) -> Option<(crate::text_area::Geometry, u16)> {
+    let layout = scene.layout();
+    let placed = &layout.nodes[index];
+    let node = &view.nodes[index];
+    if node.kind != crate::Kind::TextArea || placed.hidden || placed.disabled {
+        return None;
+    }
+    let style = layout.style(view, index);
+    let content = placed.bounds.inset(view.insets(style));
+    Some((
+        crate::text_area::geometry(content, node.value),
+        style.font_size,
+    ))
+}
+fn area_strip_holds(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    index: usize,
+    x: i32,
+    y: i32,
+) -> bool {
+    area_geometry(view, scene, index)
+        .and_then(|(g, _)| g.track)
+        .is_some_and(|track| {
+            Rect {
+                x: track.x - 2,
+                width: track.width + 2,
+                ..track
+            }
+            .contains(x, y)
+        })
+}
+/// The offset under the pointer, clamped to the area's lines.
+fn area_event(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    target: Identity,
+    index: usize,
+    x: i32,
+    y: i32,
+    kind: u32,
+) -> Option<Event> {
+    let (g, size) = area_geometry(view, scene, index)?;
+    let text = view.text_of(index);
+    let offset = crate::text_area::offset_at(text, size, x - g.text.x, y - g.text.y);
+    let event = Event {
+        target,
+        element: view.nodes[index].id,
+        kind,
+        value: offset as i32,
+        action: 0,
+    };
+    event.validate(target, view).ok()?;
+    Some(event)
+}
+/// The position strip's value under `y`: a VALUE event with the area's action.
+fn area_strip_event(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    target: Identity,
+    index: usize,
+    y: i32,
+) -> Option<Event> {
+    let (g, _) = area_geometry(view, scene, index)?;
+    let event = Event {
+        target,
+        element: view.nodes[index].id,
+        kind: VALUE,
+        value: i32::from(g.position(y)?),
+        action: view.nodes[index].action,
+    };
+    event.validate(target, view).ok()?;
+    Some(event)
+}
+/// Whether item `index` sits in a closed menu: enabled and not hidden itself,
+/// with every hidden ancestor a popup, at least one, and none disabled.
+/// Rows of a virtual list are data, never menu items.
+fn in_closed_menu(view: &Document, index: usize) -> bool {
+    let node = &view.nodes[index];
+    if node.action == 0
+        || node.state & (crate::state::HIDDEN | crate::state::DISABLED) != 0
+        || !crate::catalog::actionable(node.kind)
+        || crate::virtual_list::in_template(view, index)
+    {
+        return false;
+    }
+    let mut closed = false;
+    let mut current = node.parent;
+    let mut depth = 0;
+    while current != crate::NONE {
+        depth += 1;
+        if depth > crate::MAX_DEPTH || usize::from(current) >= usize::from(view.len) {
+            return false;
+        }
+        let ancestor = &view.nodes[usize::from(current)];
+        if ancestor.state & crate::state::DISABLED != 0 {
+            return false;
+        }
+        if ancestor.state & crate::state::HIDDEN != 0 {
+            if ancestor.kind != crate::Kind::Popup {
+                return false;
+            }
+            closed = true;
+        }
+        current = ancestor.parent;
+    }
+    closed
 }
 /// Whether an open popup decides this press: the point is on one, or a menu
 /// with a dismiss action is open (then a press elsewhere only closes it).
@@ -517,6 +732,25 @@ impl Event {
             action: a.action,
         }
     }
+    /// The same owner, window and incarnation, and the presented revision.
+    fn identity_matches(target: Identity, identity: Identity) -> Result<(), Error> {
+        if identity.owner == 0
+            || identity.window == 0
+            || identity.incarnation == 0
+            || (target.owner, target.window, target.incarnation)
+                != (identity.owner, identity.window, identity.incarnation)
+        {
+            return Err(Error::Owner);
+        }
+        if identity.epoch == 0
+            || target.epoch != identity.epoch
+            || identity.revision == 0
+            || target.revision != identity.revision
+        {
+            return Err(Error::Stale);
+        }
+        Ok(())
+    }
     pub fn validate(self, identity: Identity, view: &Document) -> Result<(), Error> {
         if self.kind == ACTIVATE {
             if self.value != 0 {
@@ -530,24 +764,23 @@ impl Event {
             .validate(identity, view);
         }
         view.validate()?;
-        if identity.owner == 0
-            || identity.window == 0
-            || identity.incarnation == 0
-            || (
-                self.target.owner,
-                self.target.window,
-                self.target.incarnation,
-            ) != (identity.owner, identity.window, identity.incarnation)
-        {
-            return Err(Error::Owner);
+        if self.kind == COMMAND {
+            Self::identity_matches(self.target, identity)?;
+            let index = view.nodes[..view.len as usize]
+                .iter()
+                .position(|n| n.id == self.element)
+                .ok_or(Error::Stale)?;
+            return if self.value == 0
+                && self.action != 0
+                && view.nodes[index].action == self.action
+                && in_closed_menu(view, index)
+            {
+                Ok(())
+            } else {
+                Err(Error::Value)
+            };
         }
-        if identity.epoch == 0
-            || self.target.epoch != identity.epoch
-            || identity.revision == 0
-            || self.target.revision != identity.revision
-        {
-            return Err(Error::Stale);
-        }
+        Self::identity_matches(self.target, identity)?;
         let index = view.nodes[..view.len as usize]
             .iter()
             .position(|n| n.id == self.element)
@@ -560,17 +793,32 @@ impl Event {
             } else {
                 0
             };
+        let text_field = matches!(node.kind, crate::Kind::TextInput | crate::Kind::TextArea);
+        let focused = node.state & crate::state::FOCUSED != 0;
+        let area_offset = |value: i32| {
+            node.kind == crate::Kind::TextArea
+                && usize::try_from(value).is_ok_and(|at| {
+                    let text = view.text_of(index);
+                    at <= text.len() && text.is_char_boundary(at)
+                })
+        };
         if self.action != action {
             return Err(Error::Value);
         }
         match self.kind {
-            TEXT if node.kind == crate::Kind::TextInput
-                && node.state & crate::state::FOCUSED != 0
+            TEXT if text_field
+                && focused
                 && char::from_u32(self.value as u32).is_some_and(|c| !c.is_control()) => {}
-            ERASE
-                if node.kind == crate::Kind::TextInput
-                    && node.state & crate::state::FOCUSED != 0
-                    && self.value == 0 => {}
+            ERASE if text_field && focused && self.value == 0 => {}
+            CARET | SELECT if area_offset(self.value) => {}
+            EDIT if node.kind == crate::Kind::TextArea
+                && focused
+                && crate::text_area::edit::valid(self.value) => {}
+            VALUE
+                if node.kind == crate::Kind::TextArea
+                    && node.action != 0
+                    && node.value <= 10000
+                    && (0..=10000).contains(&self.value) => {}
             FOCUS if node.action != 0 && self.value == 0 => {}
             HOVER if node.kind == crate::Kind::Tooltip && (0..=1).contains(&self.value) => {}
             VALUE
@@ -622,7 +870,7 @@ impl Queue {
         view: &Document,
     ) -> Result<(), Error> {
         event.validate(presented, view)?;
-        if self.len != 0 && matches!(event.kind, SCROLL | VALUE | HOVER) {
+        if self.len != 0 && matches!(event.kind, SCROLL | VALUE | HOVER | SELECT) {
             let last = &mut self.events[(self.start + self.len - 1) % CAPACITY];
             if last.kind == event.kind
                 && last.target == event.target

@@ -61,5 +61,6 @@ pub mod devices;
 pub mod package_service;
 
 pub mod picker;
+pub mod wall_clock;
 
 pub use osaiku_gpu_runtime::measurement;

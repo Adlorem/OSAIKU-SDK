@@ -27,6 +27,7 @@ Document wire major: 11. Catalog versions are exact-match.
 | `th` | Cell | ColumnHeader | false |
 | `button` | Button | Button | true |
 | `ui-text-input` | TextInput | TextBox | true |
+| `ui-text-area` | TextArea | TextBox | true |
 | `ui-virtual-list` | VirtualList | Group | false |
 | `template` | Template | Group | false |
 | `ui-chart` | Chart | Chart | false |
@@ -48,7 +49,8 @@ Document wire major: 11. Catalog versions are exact-match.
 | `bind:disabled` | bool | Any node |
 | `bind:selected` | bool | Any node except ui-tooltip (SDK-owned) |
 
-Text is literal UTF-8 (at most 256 bytes per leaf). Percent is optional,
+Text is literal UTF-8 (at most 256 bytes per leaf; 6144 for the shown lines
+of a `ui-text-area`). Percent is optional,
 0..10000 basis points; unavailable is distinct from zero. Series contain at
 most 60 ordered timestamped percent samples, including explicit missing samples.
 Bool controls hidden/disabled/selected state.

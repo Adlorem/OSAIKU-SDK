@@ -61,6 +61,7 @@ components![
     ("th", Cell, ColumnHeader),
     ("button", Button, Button),
     ("ui-text-input", TextInput, TextBox),
+    ("ui-text-area", TextArea, TextBox),
     ("ui-virtual-list", VirtualList, Group),
     ("template", Template, Group),
     ("ui-chart", Chart, Chart),
@@ -78,7 +79,13 @@ pub const fn actionable(kind: Kind) -> bool {
     // A popup's own action is its dismissal (a press outside it, or Escape).
     matches!(
         kind,
-        Kind::Button | Kind::Row | Kind::TextInput | Kind::Popup | Kind::Slider | Kind::Tooltip
+        Kind::Button
+            | Kind::Row
+            | Kind::TextInput
+            | Kind::TextArea
+            | Kind::Popup
+            | Kind::Slider
+            | Kind::Tooltip
     )
 }
 
@@ -212,7 +219,7 @@ pub fn write_reference(out: &mut impl Write) -> fmt::Result {
             targets
         )?;
     }
-    writeln!(out, "\nText is literal UTF-8 (at most {} bytes per leaf). Percent is optional,\n0..10000 basis points; unavailable is distinct from zero. Series contain at\nmost 60 ordered timestamped percent samples, including explicit missing samples.\nBool controls hidden/disabled/selected state.\n", crate::MAX_LEAF_TEXT)?;
+    writeln!(out, "\nText is literal UTF-8 (at most {} bytes per leaf; {} for the shown lines\nof a `ui-text-area`). Percent is optional,\n0..10000 basis points; unavailable is distinct from zero. Series contain at\nmost 60 ordered timestamped percent samples, including explicit missing samples.\nBool controls hidden/disabled/selected state.\n", crate::MAX_LEAF_TEXT, crate::MAX_AREA_TEXT)?;
     writeln!(
         out,
         "## Report actions\n\n| Intent | Authority |\n| --- | --- |"

@@ -29,6 +29,7 @@ comments between rules are supported.
 | span, p; h1, h2 | Text; heading |
 | button | Focusable action/button |
 | ui-text-input | Focusable application-owned editable text / textbox |
+| ui-text-area | Focusable multi-line text the application edits: caret, selection, position strip |
 | table, tr, th, td | Table, row, column header, cell |
 | ui-virtual-list, template, ui-list-item | Scroll viewport, single row prototype, selectable row |
 | ui-chart | Percent history, timestamped series with missing readings |
@@ -60,7 +61,7 @@ sample has only `0 s`, even if its value is unavailable. Lines and point markers
 are clipped to the plot; labels respect the chart and scroll viewport clips.
 Two series together fit 120 points. `Bindings` resolves locally; callbacks
 never enter encoded content. Data text is literal. `action` names application
-behavior, only on buttons/selectable rows/text inputs/sliders; it grants no system privileges.
+behavior, only on buttons/selectable rows/text inputs/text areas/sliders; it grants no system privileges.
 
 `ui-slider` draws a round thumb two thirds as tall as its content box (the
 whole box is the press target) on a track a third of the thumb's height,
@@ -85,6 +86,67 @@ keeps its existing 32-byte keyboard/save contract when using this control.
 The text-only `text_model` binder formats bounded labels without a
 Document-sized stack temporary. Its `matches` verifier checks a submitted
 recipe against a trusted template/model while allowing focus and scroll state.
+
+## Multi-line text: `ui-text-area`
+
+The application owns the whole text and sends only the part it shows: whole
+lines from its first visible line, each cut to the columns it shows, joined by
+`'\n'` (at most `MAX_AREA_TEXT`, 6144 bytes, while every other leaf keeps 256).
+`text_area::pack` puts the caret and selection anchor, as offsets into that
+part, in `Node::scroll_y`; a caret scrolled out of view is clamped to the
+nearer end and not drawn, so a selection still runs to the edge. `Node::value`
+is the position strip (0–10000, or 10001 when everything fits and no strip is
+drawn). `Document::set_text` fills the node after binding; validation refuses
+offsets off the text or off character boundaries, and `overflow` on an area.
+
+Paint draws the lines at `text_area::line_height`, a tab to the next multiple
+of four digit widths, the selection behind the text (the `selected` token while
+focused, `track` otherwise), a two-pixel caret only while focused, and the strip
+in the scrollbar look. `text_area::boundaries`, `offset_at` and `runs` are the
+placement paint and input share. A press on the lines sends `CARET` with the
+offset under the pointer; `input::Pointer` keeps the area until release and
+sends `SELECT` with each new offset. A press or drag on the strip sends `VALUE`
+with the area's action. Editing keys arrive as `EDIT` with a
+`text_area::edit` value (arrows, Home, End, PageUp/PageDown, Delete, select
+all, with `SHIFT`/`CONTROL`); Enter is `edit::NEWLINE` and Tab `edit::TAB`
+for a focused area, Shift+Tab still leaves it. Characters and Backspace are
+the usual `TEXT` and `ERASE`. The host never edits the text.
+
+`text_area::compose` turns a whole text, a `Scroll` and a caret into the shown
+part for the laid-out text box, moving the scroll to keep the caret in view,
+and fills a `Frame`; keep the frame of each submitted revision and map `CARET`
+and `SELECT` offsets with `Frame::source`. `text_area::motion` moves a caret
+for an `EDIT` value (words, lines with a remembered pixel column, pages).
+Lay the document out with `Layout::compute_into` in `render_for_viewport` to
+know the text box. Notepad (`apps/notepad`) is the reference application.
+
+## Menu bar and command keys
+
+`.menu-bar` holds `button.menu-title` titles; each opens a
+`ui-popup-menu.menu-popup` of `ui-list-item.menu-entry` items with a
+`.menu-entry-label` and an optional `.menu-entry-keys` text, separated by
+`ui-separator.menu-separator`. `menu::Menu::named("file")` derives the names
+(`menu-file` title id and action, `file-menu` popup, `file-menu-hidden` and
+`file-menu-open` bindings); `menu::State` toggles and switches menus, closes
+them on `menu-close` (a press outside or Escape) and reports a chosen item's
+action, `flag` answers the bindings and `place` anchors the open popup under
+its title from the layout. Up and Down move between the items of an open menu.
+
+`Key::Shortcut(action)` still reaches the one visible, enabled control with
+that action. When none is visible and no menu or dialog is open, a single
+enabled item with that action in a closed menu receives `COMMAND` instead:
+items keep their accelerators while their menu is closed. `COMMAND` validates
+only for such an item. The keyboard maps editing chords to
+`input::COMMANDS` (Ctrl+Z `undo`, Ctrl+Y and Ctrl+Shift+Z `redo`, Ctrl+F
+`find`, Ctrl+H `replace`, Ctrl+G `go-to-line`, Ctrl+N `new`, Ctrl+W
+`close-tab`, Ctrl+Tab and Ctrl+Shift+Tab `next-tab`/`previous-tab`, F3 and
+Shift+F3 `find-next`/`find-previous`, F5 `insert-date`, Ctrl+= or Ctrl++,
+Ctrl+- and Ctrl+0 `zoom-in`/`zoom-out`/`zoom-reset`), beside the existing
+Ctrl+S `save`, Ctrl+Shift+S `save-as` and Ctrl+O `open`. Ctrl+A is
+`edit::SELECT_ALL`; Ctrl+Shift with the arrows still resizes the window.
+
+Status bars use `.status-bar` with `.status-item` texts. Document tabs use the
+existing `.tab` buttons.
 
 Wire major 5 adds TextInput/TextBox. Wire major 7 adds box decoration,
 alignment and chart-area opacity (see below). Wire major 9 adds virtual lists.
