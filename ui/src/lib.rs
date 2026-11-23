@@ -18,6 +18,7 @@ pub mod font_atlas;
 pub mod image;
 pub mod input;
 pub mod layout;
+pub mod menu;
 pub mod notice;
 pub mod paint;
 pub mod raster;
@@ -25,6 +26,7 @@ pub mod report;
 mod shape;
 pub mod slider;
 pub mod surface;
+pub mod text_area;
 pub mod text_atlas;
 pub mod text_model;
 pub mod theme;
@@ -47,6 +49,8 @@ pub const MAX_NODES: usize = 256;
 pub const MAX_DEPTH: usize = 24;
 pub const MAX_TEXT: usize = 8192;
 pub const MAX_LEAF_TEXT: usize = 256;
+/// The shown part of a `ui-text-area` (see `text_area`).
+pub const MAX_AREA_TEXT: usize = 6144;
 pub const MAX_POINTS: usize = 120;
 pub const MAX_WIRE: usize = 65536;
 pub const NONE: u16 = u16::MAX;
@@ -98,6 +102,9 @@ pub enum Kind {
     Slider = 14,
     /// A help icon with a bounded explanation, painted above the document.
     Tooltip = 15,
+    /// `ui-text-area`: the lines of a multi-line text the application shows,
+    /// with its caret and selection (see `text_area`).
+    TextArea = 16,
 }
 impl Kind {
     pub fn from_byte(value: u8) -> Option<Self> {
@@ -118,8 +125,16 @@ impl Kind {
             13 => Self::Popup,
             14 => Self::Slider,
             15 => Self::Tooltip,
+            16 => Self::TextArea,
             _ => return None,
         })
+    }
+    /// Most text bytes one node of this kind carries.
+    pub const fn text_limit(self) -> usize {
+        match self {
+            Self::TextArea => MAX_AREA_TEXT,
+            _ => MAX_LEAF_TEXT,
+        }
     }
     pub fn container(self) -> bool {
         matches!(
@@ -187,7 +202,7 @@ impl Role {
             Kind::ValueBar => self == Self::Meter,
             Kind::Separator => self == Self::Separator,
             Kind::Icon => self == Self::Presentation,
-            Kind::TextInput => self == Self::TextBox,
+            Kind::TextInput | Kind::TextArea => self == Self::TextBox,
             Kind::Slider => self == Self::Slider,
         }
     }
@@ -513,7 +528,7 @@ impl Document {
                 || !style_valid(&n.narrow)
                 || n.breakpoint > 4096
                 || n.value > 10001
-                || n.scroll_y > 1_048_576
+                || (n.scroll_y > 1_048_576 && n.kind != Kind::TextArea)
                 || n.state_styles.iter().any(|index| {
                     *index != NO_STATE_STYLE && usize::from(*index) >= self.state_style_len as usize
                 })
@@ -542,15 +557,18 @@ impl Document {
             if (n.kind == Kind::Tooltip) != (n.action == tooltip::ACTION) {
                 return Err(Error::Structure);
             }
-            if n.text_len as usize > MAX_LEAF_TEXT
+            if n.text_len as usize > n.kind.text_limit()
                 || n.text_start as usize + n.text_len as usize > self.text_len as usize
             {
                 return Err(Error::Text);
             }
-            core::str::from_utf8(
+            let text = core::str::from_utf8(
                 &self.text[n.text_start as usize..n.text_start as usize + n.text_len as usize],
             )
             .map_err(|_| Error::Text)?;
+            if n.kind == Kind::TextArea && !text_area::valid(text, n.scroll_y, n.value) {
+                return Err(Error::Value);
+            }
             if n.series_len > 60
                 || n.series_start as usize + n.series_len as usize > self.point_len as usize
                 || (n.series_len != 0 && n.kind != Kind::Chart)
@@ -569,6 +587,10 @@ impl Document {
                 .any(|b| n.bindings[b.slot] != 0 && !b.accepts(n.kind))
             {
                 return Err(Error::Binding);
+            }
+            // An area scrolls its own lines; its scroll_y holds the caret.
+            if n.kind == Kind::TextArea && (n.style.overflow == 2 || n.narrow.overflow == 2) {
+                return Err(Error::Value);
             }
             // A popup is positioned by its anchor, never by a list row.
             if n.kind == Kind::Popup
@@ -683,6 +705,32 @@ impl Document {
         false
     }
 
+    /// Give node `index` new text, appended to the shared text: a host or
+    /// application fills a `ui-text-area` after binding the rest. The bytes
+    /// the node used before stay in the pool until the next binding.
+    /// The caller still sets the node's caret, anchor and position fields;
+    /// `validate` checks them against this text.
+    pub fn set_text(&mut self, index: usize, text: &str) -> Result<(), Error> {
+        let node = self
+            .nodes
+            .get(index)
+            .filter(|_| index < usize::from(self.len))
+            .ok_or(Error::Structure)?;
+        let start = usize::from(self.text_len);
+        if node.kind.container() || text.len() > node.kind.text_limit() {
+            return Err(Error::Text);
+        }
+        let end = start
+            .checked_add(text.len())
+            .filter(|end| *end <= MAX_TEXT)
+            .ok_or(Error::Limit)?;
+        self.text[start..end].copy_from_slice(text.as_bytes());
+        self.text_len = end as u16;
+        let node = &mut self.nodes[index];
+        node.text_start = start as u16;
+        node.text_len = text.len() as u16;
+        Ok(())
+    }
     pub fn text_of(&self, index: usize) -> &str {
         let n = &self.nodes[index];
         core::str::from_utf8(
@@ -719,7 +767,8 @@ impl Document {
                     _ => return Err(Error::Binding),
                 }
             };
-            if text.len() > MAX_LEAF_TEXT || next.text_len as usize + text.len() > MAX_TEXT {
+            if text.len() > old.kind.text_limit() || next.text_len as usize + text.len() > MAX_TEXT
+            {
                 return Err(Error::Limit);
             }
             n.text_start = next.text_len;

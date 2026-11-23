@@ -4,6 +4,21 @@ button { height: 32px; font-size: 14px; color: theme(text); text-align: center; 
 button:selected { background-color: theme(selected); }
 ui-text-input { height: 48px; padding: 8px; color: theme(text); background-color: theme(input); border-radius: 8px; border-width: 1px; border-color: theme(line); }
 ui-text-input:focus { background-color: theme(input-focus); }
+ui-text-area { padding: 8px; font-size: 16px; color: theme(text); background-color: theme(input); border-width: 1px; border-color: theme(line); outline: none; }
+ui-text-area:focus { color: theme(text); background-color: theme(input); border-color: theme(accent); }
+.menu-bar { flex-direction: row; height: 32px; padding: 2px; gap: 2px; border-width: 0 0 1px 0; border-color: theme(line); }
+.menu-title { width: 88px; height: 28px; font-size: 14px; color: theme(text); border-width: 0px; border-radius: 6px; background-color: #00000000; outline: none; }
+.menu-title:selected { background-color: theme(selected); }
+.menu-title:focus { color: theme(text); background-color: theme(selected); }
+.menu-popup { width: 280px; padding: 4px; gap: 2px; background-color: theme(card); border-width: 1px; border-color: theme(line); border-radius: 8px; }
+.menu-entry { height: 30px; padding: 6px; gap: 8px; align-items: center; border-radius: 4px; }
+.menu-entry:focus { color: theme(text); background-color: theme(selected); }
+.menu-entry:selected { color: theme(accent); }
+.menu-entry-label { height: 18px; font-size: 14px; vertical-align: middle; }
+.menu-entry-keys { width: 104px; height: 18px; font-size: 12px; color: theme(muted); text-align: right; vertical-align: middle; }
+.menu-separator { height: 1px; color: theme(grid); }
+.status-bar { flex-direction: row; height: 26px; padding: 4px; gap: 8px; border-width: 1px 0 0 0; border-color: theme(line); }
+.status-item { height: 18px; font-size: 12px; color: theme(muted); vertical-align: middle; }
 .tab { height: auto; font-size: 16px; color: theme(muted); border-radius: 0px; border-width: 0px; background-color: #00000000; }
 .tab:selected { color: theme(text); border-width: 0 0 2px 0; border-color: theme(accent); background-color: #00000000; }
 .card { padding: 16px; gap: 10px; background-color: theme(card); border-radius: 12px; border-width: 1px; border-color: theme(line); }

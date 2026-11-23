@@ -346,8 +346,8 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 parent: (n.parent != NONE).then(|| self.view.nodes[n.parent as usize].id),
                 kind: n.kind,
                 role: n.role,
-                text: self.text_of(i),
-                value: (n.value <= 10000).then_some(n.value),
+                text: label(n.kind, self.text_of(i)),
+                value: (n.value <= 10000 && n.kind != Kind::TextArea).then_some(n.value),
                 series: &self.view.points
                     [n.series_start as usize..(n.series_start + n.series_len) as usize],
                 state: n.state
@@ -559,6 +559,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                     let at = aligned(r, text, s, decoration);
                     painter.text(at, text, s.font_size, color, p.clip)
                 }
+                Kind::TextArea => self.text_area(painter, i, r, s, p.clip),
                 Kind::Separator => painter.fill(Rect { height: 1, ..r }, color, p.clip),
                 Kind::Icon => {
                     let image = self
@@ -717,6 +718,108 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             }
         }
     }
+    /// The shown lines of a `ui-text-area`: the selection behind them, the
+    /// caret while focused, and the position strip when the text is longer.
+    fn text_area(&self, painter: &mut impl Painter, i: usize, r: Rect, s: Style, clip: Rect) {
+        use crate::text_area as area;
+        let n = &self.view.nodes[i];
+        let text = self.text_of(i);
+        let g = area::geometry(r, n.value);
+        let size = s.font_size;
+        let line = area::line_height(size);
+        let clip = clip.intersect(g.text);
+        let focused = n.state & state::FOCUSED != 0;
+        let caret = (focused && area::caret_shown(n.scroll_y)).then(|| area::caret(n.scroll_y));
+        let selection = area::selection(n.scroll_y);
+        let selected = self.color(theme::SELECTED, 0);
+        let unfocused = self.color(theme::TRACK, 0);
+        let (shade, alpha) = if focused {
+            (selected & 0x00ff_ffff, (selected >> 24) as u8)
+        } else {
+            (unfocused & 0x00ff_ffff, (unfocused >> 24) as u8)
+        };
+        let lead = (line - u32::from(size)) as i32 / 2;
+        let mut start = 0;
+        for (row, text_line) in text.split('\n').enumerate() {
+            let top = g.text.y + (row as u32 * line) as i32;
+            if top >= clip.bottom() {
+                break;
+            }
+            let end = start + text_line.len();
+            let row_box = Rect {
+                y: top,
+                height: line,
+                ..g.text
+            };
+            if top + line as i32 > clip.y {
+                if selection.start < selection.end
+                    && selection.start <= end
+                    && selection.end > start
+                {
+                    let from = selection.start.max(start) - start;
+                    let to = selection.end.min(end) - start;
+                    let x0 = area::x_of(text_line, from, size);
+                    // A selected line break shows as a narrow block after the line.
+                    let x1 = area::x_of(text_line, to, size)
+                        + if selection.end > end {
+                            (size / 3) as i32
+                        } else {
+                            0
+                        };
+                    painter.fill_alpha(
+                        Rect {
+                            x: g.text.x + x0,
+                            width: (x1 - x0).max(0) as u32,
+                            ..row_box
+                        },
+                        shade,
+                        alpha,
+                        clip,
+                    );
+                }
+                for (x, run) in area::runs(text_line, size) {
+                    let at = Rect {
+                        x: g.text.x + x,
+                        y: top + lead,
+                        width: g.text.width.saturating_sub(x.max(0) as u32),
+                        height: u32::from(size),
+                    };
+                    if at.x >= clip.right() {
+                        break;
+                    }
+                    painter.text(at, run, size, s.color, clip);
+                }
+                if let Some(c) = caret.filter(|c| (start..=end).contains(c)) {
+                    let x = area::x_of(text_line, c - start, size);
+                    painter.fill(
+                        Rect {
+                            x: g.text.x + x,
+                            width: 2,
+                            ..row_box
+                        },
+                        s.color,
+                        clip,
+                    );
+                }
+            }
+            start = end + 1;
+        }
+        if let (Some(track), Some(thumb)) = (g.track, g.thumb(n.value)) {
+            let tint = self.theme.color(theme::TRACK, 0);
+            let radius = (track.width / 2) as u8;
+            let outer = self.layout().nodes[i].clip;
+            fill_box(
+                painter,
+                track,
+                radius,
+                tint & 0x00ff_ffff,
+                (tint >> 24) as u8,
+                outer,
+            );
+            let accent = self.color(theme::ACCENT, 0) & 0x00ff_ffff;
+            fill_box(painter, thumb, radius, accent, 255, outer);
+        }
+    }
     pub fn scrollbar(&self, index: usize) -> Option<Scrollbar> {
         let p = self.layout().nodes.get(index)?;
         let s = self.layout().style(self.view, index);
@@ -854,6 +957,19 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             previous = Some((x, y));
         }
     }
+}
+
+/// A semantic label: an area's shown lines are cut to one leaf's bound on a
+/// character boundary, so publications keep their per-element limit.
+fn label(kind: Kind, text: &str) -> &str {
+    if kind != Kind::TextArea || text.len() <= MAX_LEAF_TEXT {
+        return text;
+    }
+    let mut end = MAX_LEAF_TEXT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 /// One line of text in the content box: CSS text-align across it and

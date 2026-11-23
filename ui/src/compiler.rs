@@ -556,7 +556,9 @@ fn css_rules(
                 return Err(p.error("expected type, .class or #id with optional state suffixes"));
             }
             let selector = base.to_string();
-            if rules.len() == 128 {
+            // SDK defaults plus the application's 96 rules, which are limited
+            // separately below; rules are compile-time only.
+            if rules.len() == 160 {
                 return Err(p.error("style rule limit exceeded"));
             }
             rules.push(Rule {
