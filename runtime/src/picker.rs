@@ -26,7 +26,8 @@ pub const WRITE: u64 = 9;
 pub const NAME: u64 = 10;
 pub const CAPACITY: usize = 4096;
 pub const MAX_REPLACE: u64 = 16 * 1024 * 1024;
-/// Authenticated host delivery of a READ scope, already bound by the broker.
+/// Authenticated host delivery of the selected file. A native editor with
+/// selected-file WRITE permission can also save through this scope.
 /// Receiving these bytes from another app never authorizes an open.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OpenScope {

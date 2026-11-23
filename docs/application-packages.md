@@ -403,14 +403,16 @@ it never overwrites a collision or first exposes an empty placeholder. Success
 turns this scope into a version-bound file WRITE scope. A refused, stale or
 uncertain operation requires an explicit user retry; preserve the draft.
 
-`picker::OpenScope` is a 40-byte authenticated host message delivering a READ
-scope for a file opened in Files. Accept it only through `hosted::host_message`,
+`picker::OpenScope` is a 40-byte authenticated host message for the exact file
+opened in Files. The scope permits reading. For a native file it also permits
+editing when the recipient has selected-file WRITE permission.
+Accept it only through `hosted::host_message`,
 for the exact window/incarnation and a fresh sequence, while the document can
 safely accept replacement. Return its correlated 24-byte acknowledgement. The
-token still has to pass STATUS/READ; receiving bytes does not confer authority.
-Release it with CANCEL after the read. The migrated Document uses this path,
-public picker transactions, and app-owned text/save state. Its current text
-limit is 256 UTF-8 bytes; overlong input is refused without truncation.
+kernel checks the scope and its rights on each read or replacement. An editor
+can retain the token with the open document for version-checked saves. Release
+it with CANCEL when the document closes or moves to another file. A viewer can
+release it immediately after reading.
 
 ## Protected browser client and metadata
 
