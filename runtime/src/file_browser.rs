@@ -16,6 +16,60 @@ pub const KEEP_BOTH: u64 = 50;
 pub const SKIP: u64 = 51;
 pub const CONFLICT: u64 = 5;
 pub const CONFLICT_NO_REPLACE: u64 = 6;
+/// The application file request a Files window serves (`Picker`).
+pub const PICKER: u64 = 60;
+
+pub mod picker_mode {
+    pub const NONE: u64 = 0;
+    pub const OPEN_IN_WINDOW: u64 = 1;
+    pub const SAVE_IN_WINDOW: u64 = 2;
+    pub const OPEN_AVAILABLE: u64 = 3;
+    pub const SAVE_AVAILABLE: u64 = 4;
+}
+
+/// An application's pending open/save request as one Files window sees it.
+/// The window only presents it: the kernel acts on real presses of the
+/// window's own buttons and decides what the application may touch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct Picker {
+    /// 0 none; 1 open, 2 save, chosen in this window; 3 open, 4 save,
+    /// waiting for a window to take it.
+    pub mode: u64,
+    /// The request; a new one restarts the window's suggested name.
+    pub token: u64,
+    pub name_len: u64,
+    /// The name the application suggests for a new file.
+    pub name: [u8; 64],
+}
+impl Picker {
+    pub const EMPTY: Self = Self {
+        mode: picker_mode::NONE,
+        token: 0,
+        name_len: 0,
+        name: [0; 64],
+    };
+    pub fn canonical(&self) -> bool {
+        self.mode <= picker_mode::SAVE_AVAILABLE
+            && (self.mode == picker_mode::NONE) == (self.token == 0)
+            && self.name_len <= 64
+            && self.name[self.name_len as usize..].iter().all(|b| *b == 0)
+            && core::str::from_utf8(&self.name[..self.name_len as usize]).is_ok()
+    }
+    /// The window shows the save/open bar.
+    pub fn is_bound_to_window(&self) -> bool {
+        matches!(
+            self.mode,
+            picker_mode::OPEN_IN_WINDOW | picker_mode::SAVE_IN_WINDOW
+        )
+    }
+    pub fn is_save_request(&self) -> bool {
+        matches!(
+            self.mode,
+            picker_mode::SAVE_IN_WINDOW | picker_mode::SAVE_AVAILABLE
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Choice {

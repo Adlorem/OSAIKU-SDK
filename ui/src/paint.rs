@@ -681,6 +681,48 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                         painter.fill_rounded(thumb, g.knob / 2, face, 255, p.clip);
                     }
                 }
+                Kind::Switch => {
+                    let Some(g) = crate::switch::geometry(r) else {
+                        continue;
+                    };
+                    // On: the element's colour (the theme accent unless CSS
+                    // says otherwise), its track a translucent tint of it.
+                    // Off: a grey knob on the plain track.
+                    let on = n.state & state::SELECTED != 0;
+                    let dim = |alpha: u32| -> u8 {
+                        (if p.disabled { alpha * 45 / 100 } else { alpha }) as u8
+                    };
+                    let (track, track_alpha) = if on {
+                        (color, 112)
+                    } else {
+                        let t = self.theme.color(theme::TRACK, 0);
+                        (t & 0x00ff_ffff, t >> 24)
+                    };
+                    let radius = g.track.height / 2;
+                    painter.fill_rounded(g.track, radius, track, dim(track_alpha), p.clip);
+                    let knob = g.knob(on);
+                    let shadow = Rect {
+                        y: knob.y + 1,
+                        ..knob
+                    };
+                    painter.fill_rounded(shadow, knob.width / 2, 0, dim(70), p.clip);
+                    let face = if on {
+                        color
+                    } else {
+                        self.color(theme::MUTED, 0) & 0x00ff_ffff
+                    };
+                    painter.fill_rounded(knob, knob.width / 2, face, dim(255), p.clip);
+                    if n.state & state::FOCUSED != 0 && !p.disabled {
+                        let ring = Rect {
+                            x: r.x - 2,
+                            y: r.y - 2,
+                            width: r.width + 4,
+                            height: r.height + 4,
+                        };
+                        let accent = self.color(theme::ACCENT, 0) & 0x00ff_ffff;
+                        painter.stroke_rounded(ring, ring.height / 2, [2; 4], accent, 160, p.clip);
+                    }
+                }
                 Kind::Chart => self.chart(painter, n, r, color, decoration.fill_opacity, p.clip),
                 _ => {}
             }
@@ -724,7 +766,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
         use crate::text_area as area;
         let n = &self.view.nodes[i];
         let text = self.text_of(i);
-        let g = area::geometry(r, n.value);
+        let g = area::geometry_with_scroll(r, n.value, n.scroll_x);
         let size = s.font_size;
         let line = area::line_height(size);
         let clip = clip.intersect(g.text);
@@ -746,9 +788,17 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 break;
             }
             let end = start + text_line.len();
+            // `text-align: right` sets each line against the right edge (a
+            // column of line numbers); the area itself is never edited so.
+            let shift = if s.text_align == 2 {
+                g.text.width.saturating_sub(area::width(text_line, size)) as i32
+            } else {
+                0
+            };
             let row_box = Rect {
                 y: top,
                 height: line,
+                x: g.text.x + shift,
                 ..g.text
             };
             if top + line as i32 > clip.y {
@@ -768,7 +818,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                         };
                     painter.fill_alpha(
                         Rect {
-                            x: g.text.x + x0,
+                            x: row_box.x + x0,
                             width: (x1 - x0).max(0) as u32,
                             ..row_box
                         },
@@ -779,7 +829,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 }
                 for (x, run) in area::runs(text_line, size) {
                     let at = Rect {
-                        x: g.text.x + x,
+                        x: row_box.x + x,
                         y: top + lead,
                         width: g.text.width.saturating_sub(x.max(0) as u32),
                         height: u32::from(size),
@@ -793,7 +843,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                     let x = area::x_of(text_line, c - start, size);
                     painter.fill(
                         Rect {
-                            x: g.text.x + x,
+                            x: row_box.x + x,
                             width: 2,
                             ..row_box
                         },
@@ -811,6 +861,21 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             fill_box(
                 painter,
                 track,
+                radius,
+                tint & 0x00ff_ffff,
+                (tint >> 24) as u8,
+                outer,
+            );
+            let accent = self.color(theme::ACCENT, 0) & 0x00ff_ffff;
+            fill_box(painter, thumb, radius, accent, 255, outer);
+        }
+        if let (Some(side), Some(thumb)) = (g.horizontal_track, g.horizontal_thumb(n.scroll_x)) {
+            let tint = self.theme.color(theme::TRACK, 0);
+            let radius = (side.height / 2) as u8;
+            let outer = self.layout().nodes[i].clip;
+            fill_box(
+                painter,
+                side,
                 radius,
                 tint & 0x00ff_ffff,
                 (tint >> 24) as u8,

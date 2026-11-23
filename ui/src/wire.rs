@@ -166,6 +166,9 @@ impl Document {
             w.style(n.narrow)?;
             w.u16(n.breakpoint)?;
             w.u32(n.scroll_y)?;
+            if n.kind == Kind::TextArea {
+                w.u8(n.scroll_x)?;
+            }
             if n.kind == Kind::VirtualList {
                 w.u32(self.lists[n.value as usize].source)?;
                 w.u16(self.lists[n.value as usize].item_height)?;
@@ -246,6 +249,9 @@ impl Document {
             n.narrow = r.style()?;
             n.breakpoint = r.u16()?;
             n.scroll_y = r.u32()?;
+            if n.kind == Kind::TextArea {
+                n.scroll_x = r.u8()?;
+            }
             if n.kind == Kind::VirtualList {
                 if n.value != doc.list_len || doc.list_len as usize == virtual_list::MAX_LISTS {
                     return Err(Error::Structure);

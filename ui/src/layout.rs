@@ -107,6 +107,7 @@ impl Measurements {
                     Kind::Separator => 1,
                     Kind::ValueBar => 16,
                     Kind::Slider => 18,
+                    Kind::Switch => 24,
                     // Four lines unless CSS gives the area a height or growth.
                     Kind::TextArea => crate::text_area::line_height(s.font_size) * 4 + top + bottom,
                     _ => s.font_size as u32 + top + bottom,

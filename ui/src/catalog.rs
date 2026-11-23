@@ -67,6 +67,7 @@ components![
     ("ui-chart", Chart, Chart),
     ("ui-value-bar", ValueBar, Meter),
     ("ui-slider", Slider, Slider),
+    ("ui-switch", Switch, Button),
     ("ui-tooltip", Tooltip, Button),
     ("ui-separator", Separator, Separator),
     ("ui-icon", Icon, Presentation),
@@ -86,6 +87,7 @@ pub const fn actionable(kind: Kind) -> bool {
             | Kind::Popup
             | Kind::Slider
             | Kind::Tooltip
+            | Kind::Switch
     )
 }
 
