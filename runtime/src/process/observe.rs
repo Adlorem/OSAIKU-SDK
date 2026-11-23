@@ -64,4 +64,9 @@ impl Observations {
         let s = self.slots.iter_mut().find(|s| s.is_some_and(|e| e.gone))?;
         s.take().map(|e| e.key)
     }
+    /// Inspect delivery without consuming it. The kernel commits TAKE only
+    /// after the caller's output has been copied successfully.
+    pub fn peek(&self) -> Option<Notice> {
+        self.slots.iter().flatten().find(|e| e.gone).map(|e| e.key)
+    }
 }

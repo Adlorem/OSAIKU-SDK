@@ -68,6 +68,11 @@ impl Ring {
         if self.available()? == 0 {
             return Err(Error::Backpressure);
         }
+        let next = self.stage(e);
+        Ok(self.publish(next))
+    }
+    // The peer cannot consume these entries until publish releases the cursor.
+    fn stage(&mut self, e: Entry) -> u32 {
         let bytes = e.encode();
         let slot = self.cursor.index() * 8;
         for i in 0..8 {
@@ -78,12 +83,46 @@ impl Ring {
                 );
             }
         }
-        let next = self.cursor.advance();
+        self.cursor.advance()
+    }
+    fn publish(&self, next: u32) -> bool {
         unsafe {
             (*self.own).store(next.to_le(), Ordering::Release);
         }
         fence(Ordering::SeqCst);
-        Ok(unsafe { (*self.peer_waiting).load(Ordering::Relaxed) } != 0)
+        unsafe { (*self.peer_waiting).load(Ordering::Relaxed) != 0 }
+    }
+    /// Publish a bounded FIFO prefix of private credits. One release and
+    /// wait-flag check cover the entire prefix, also on a later ledger error.
+    pub(crate) fn publish_returns<const N: usize>(
+        &mut self,
+        pending: &mut Returns<N>,
+        owner: &mut Ownership<N>,
+        wake: &mut bool,
+    ) -> Result<(), Error> {
+        if !self.producer {
+            return Err(Error::Permission);
+        }
+        if pending.front().is_none() {
+            return Ok(());
+        }
+        let capacity = self.available()?;
+        let mut last = None;
+        let result = (|| {
+            for _ in 0..capacity {
+                let Some(entry) = pending.front() else {
+                    break;
+                };
+                owner.returned(entry)?;
+                pending.published()?;
+                last = Some(self.stage(entry));
+            }
+            Ok(())
+        })();
+        if let Some(next) = last {
+            *wake |= self.publish(next);
+        }
+        result
     }
     /// Copy the entire untrusted entry before validation. Atomic word reads
     /// remain defined if a malicious peer rewrites a published entry.
@@ -94,21 +133,44 @@ impl Ring {
         if self.available()? == 0 {
             return Err(Error::NotReady);
         }
+        let (bytes, next) = self.take_entry();
+        Ok((bytes, self.publish(next)))
+    }
+
+    /// Consume the bounded prefix visible at entry. Publish once, including
+    /// the descriptor that caused a callback error, as for individual pops.
+    pub(crate) fn drain(
+        &mut self,
+        wake: &mut bool,
+        mut consume: impl FnMut([u8; ENTRY_BYTES]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if self.producer {
+            return Err(Error::Permission);
+        }
+        let mut remaining = self.available()?;
+        while remaining != 0 {
+            let (bytes, next) = self.take_entry();
+            remaining -= 1;
+            if remaining == 0 {
+                *wake |= self.publish(next);
+                return consume(bytes);
+            }
+            if let Err(error) = consume(bytes) {
+                *wake |= self.publish(next);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn take_entry(&mut self) -> ([u8; ENTRY_BYTES], u32) {
         let mut bytes = [0; ENTRY_BYTES];
         let slot = self.cursor.index() * 8;
         for i in 0..8 {
             let word = unsafe { (*self.entries.add(slot + i)).load(Ordering::Relaxed) };
             bytes[i * 4..i * 4 + 4].copy_from_slice(&word.to_ne_bytes());
         }
-        let next = self.cursor.advance();
-        unsafe {
-            (*self.own).store(next.to_le(), Ordering::Release);
-        }
-        fence(Ordering::SeqCst);
-        Ok((
-            bytes,
-            unsafe { (*self.peer_waiting).load(Ordering::Relaxed) } != 0,
-        ))
+        (bytes, self.cursor.advance())
     }
     /// true means the caller can enter wait_event with its PREVIOUS last_seen.
     /// Call disarm after every wait return, including stale/deadline errors.
@@ -139,7 +201,8 @@ impl Ring {
 /// Copy RX into private memory before any protocol parser sees it. A device
 /// may continue writing its RX pages; lengths/offsets come only from snapshot.
 /// # Safety
-/// base maps the pinned RX arena, at least geometry.data_bytes() bytes, R+NX.
+/// base maps the pinned RX data RAM, at least geometry.data_bytes() bytes,
+/// R+NX. Device registers must never be passed as an RX arena.
 pub unsafe fn copy_rx(
     base: *const u8,
     g: Geometry,
@@ -151,9 +214,127 @@ pub unsafe fn copy_rx(
     if out.len() < e.length as usize {
         return Err(Error::Size);
     }
-    let offset = g.offset(e.slot)? as usize;
-    for (i, b) in out[..e.length as usize].iter_mut().enumerate() {
-        *b = unsafe { core::ptr::read_volatile(base.add(offset + i)) };
+    let mut source = unsafe { base.add(g.offset(e.slot)? as usize) };
+    let mut rest = &mut out[..e.length as usize];
+    // Each read stays within the validated frame. Aligned word reads reduce
+    // CPU load instructions while preserving a fully private packet snapshot.
+    #[cfg(target_arch = "x86_64")]
+    if source.cast::<u64>().is_aligned() {
+        let (words, tail) = rest.as_chunks_mut::<8>();
+        for word in words {
+            *word = unsafe { source.cast::<u64>().read_volatile() }.to_ne_bytes();
+            source = unsafe { source.add(8) };
+        }
+        rest = tail;
+    }
+    for b in rest {
+        *b = unsafe { source.read_volatile() };
+        source = unsafe { source.add(1) };
     }
     Ok(e.length as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rx_snapshots_keep_exact_lengths_and_private_tails() {
+        #[repr(align(4096))]
+        struct Data([u8; 4097]);
+        let mut source = Data(core::array::from_fn(|i| i.wrapping_mul(31) as u8));
+        let original = source.0;
+        let geometry = Geometry {
+            generation: 1,
+            capacity: 64,
+            slots: 1,
+            slot_bytes: 4096,
+            mtu: 1500,
+        };
+        for skip in [0, 1] {
+            for length in (14..=24).chain(1510..=1518) {
+                source.0 = original;
+                let entry = Entry {
+                    length,
+                    generation: 1,
+                    ..Entry::default()
+                };
+                let mut copy = [0xcc; 1520];
+                let n = unsafe {
+                    copy_rx(source.0.as_ptr().add(skip), geometry, entry, &mut copy[1..])
+                }
+                .unwrap();
+                source.0.fill(0);
+                assert_eq!(n, length as usize);
+                assert_eq!(&copy[1..1 + n], &original[skip..skip + n]);
+                assert_eq!(copy[0], 0xcc);
+                assert!(copy[1 + n..].iter().all(|b| *b == 0xcc));
+            }
+        }
+    }
+
+    #[test]
+    fn publish_only_commits_and_wakes_for_the_valid_prefix_that_fits() {
+        #[repr(align(4096))]
+        struct Page([AtomicU32; 1024]);
+        let entries = Page([const { AtomicU32::new(0) }; 1024]);
+        let indices = Page([const { AtomicU32::new(0) }; 1024]);
+        let line = |n: usize| indices.0.as_ptr().wrapping_add(16 * n).cast::<u32>();
+        let mut ring = unsafe {
+            Ring::mapped(
+                entries.0.as_ptr().cast_mut().cast(),
+                line(0).cast_mut(),
+                line(1),
+                line(2).cast_mut(),
+                line(3),
+                64,
+                true,
+            )
+            .unwrap()
+        };
+        let geometry = Geometry {
+            generation: 1,
+            capacity: 64,
+            slots: 64,
+            slot_bytes: 4096,
+            mtu: 1500,
+        };
+        let mut owner = Ownership::<64>::new(geometry, true).unwrap();
+        let mut pending = Returns::<64>::new(64).unwrap();
+        for _ in 0..62 {
+            ring.push(Entry::default()).unwrap();
+        }
+        for slot in 0..4 {
+            let e = Entry {
+                slot,
+                generation: 1,
+                ..Entry::default()
+            };
+            if slot != 3 {
+                owner.queue_return(e).unwrap();
+            }
+            pending.push(e, 1, 20).unwrap();
+        }
+        indices.0[48].store(1, Ordering::Relaxed);
+        let mut wake = false;
+        ring.publish_returns(&mut pending, &mut owner, &mut wake)
+            .unwrap();
+        assert!(wake);
+        assert_eq!(indices.0[0].load(Ordering::Acquire), 64);
+        assert_eq!(pending.front().unwrap().slot, 2);
+        wake = false;
+        ring.publish_returns(&mut pending, &mut owner, &mut wake)
+            .unwrap();
+        assert!(!wake);
+        indices.0[16].store(2, Ordering::Release);
+        assert_eq!(
+            ring.publish_returns(&mut pending, &mut owner, &mut wake),
+            Err(Error::State)
+        );
+        assert!(wake);
+        assert_eq!(indices.0[0].load(Ordering::Acquire), 65);
+        assert_eq!(entries.0[0].load(Ordering::Relaxed), 2);
+        assert_eq!(pending.front().unwrap().slot, 3);
+        assert!(pending.expired(21));
+    }
 }

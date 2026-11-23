@@ -892,3 +892,39 @@ fn compositor_epoch_rejects_old_actions_at_the_same_content_revision() {
         Err(Error::Stale)
     );
 }
+
+#[test]
+fn event_queue_retains_valid_event_after_failed_publication() {
+    let view = doc();
+    let identity = Identity {
+        epoch: 1,
+        owner: 8,
+        window: 4,
+        incarnation: 2,
+        revision: 7,
+    };
+    let event = input::Event::activation(Action {
+        target: identity,
+        element: symbol("ok"),
+        action: symbol("accept"),
+    });
+    let mut queue = input::Queue::EMPTY;
+    queue.push_event(event, identity, &view).unwrap();
+    assert_eq!(
+        queue.deliver_event(&[(identity, &view)], |copy| {
+            assert_eq!(*copy, event);
+            false
+        }),
+        None
+    );
+    assert!(!queue.is_empty());
+    assert_eq!(
+        queue.deliver_event(&[(identity, &view)], |copy| {
+            assert_eq!(*copy, event);
+            true
+        }),
+        Some(event)
+    );
+    assert!(queue.is_empty());
+    assert_eq!(queue.take_event(&[(identity, &view)]), None);
+}

@@ -86,3 +86,21 @@ fn full_return_ring_retains_all_credits_until_deadline() {
     assert_eq!(q.front(), None);
     assert!(!q.expired(111));
 }
+
+#[test]
+fn pending_slot_membership_tracks_wrapped_non_power_of_two_queues() {
+    let mut q = Returns::<64>::new(3).unwrap();
+    for _ in 0..5 {
+        for slot in [2, 0] {
+            q.push(entry(slot), 1, 10).unwrap();
+        }
+        assert_eq!(q.push(entry(2), 1, 10), Err(Error::State));
+        assert_eq!(q.push(entry(3), 1, 10), Err(Error::Range));
+        q.push(entry(1), 1, 10).unwrap();
+        for slot in [2, 0, 1] {
+            assert_eq!(q.front(), Some(entry(slot)));
+            q.published().unwrap();
+        }
+        assert!(!q.expired(11));
+    }
+}

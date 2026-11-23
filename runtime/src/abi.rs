@@ -1,3 +1,8 @@
+/// Process calling convention advertised in signed x86-64 packages. The
+/// current runtime uses an IDT gate. A different required entry instruction
+/// needs a separately negotiated process ABI before the image is launched.
+pub const INT80_PROCESS_ABI: crate::package_compatibility::Version =
+    crate::package_compatibility::Version { major: 1, minor: 0 };
 pub const SYSCALL_VECTOR: u8 = 0x80;
 pub const MAX_LOG_WRITE_LEN: usize = 160;
 pub const MAX_IPC_MESSAGE_LEN: usize = 160;

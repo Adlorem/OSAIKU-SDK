@@ -643,16 +643,32 @@ impl Queue {
     /// element ID in a replacement document. Hosts may retain the preceding
     /// presented recipe while its already admitted input drains.
     pub fn take_event(&mut self, sources: &[(Identity, &Document)]) -> Option<Event> {
+        self.deliver_event(sources, |_| true)
+    }
+    /// A failed publication retains the first valid event for retry. Invalid
+    /// stale events are discarded; the callback must not reenter this queue.
+    pub fn deliver_event(
+        &mut self,
+        sources: &[(Identity, &Document)],
+        publish: impl FnOnce(&Event) -> bool,
+    ) -> Option<Event> {
         while self.len != 0 {
-            let event = core::mem::replace(&mut self.events[self.start], Event::EMPTY);
-            self.start = (self.start + 1) % CAPACITY;
-            self.len -= 1;
-            if sources
+            let event = self.events[self.start];
+            let valid = sources
                 .iter()
-                .any(|(identity, view)| event.validate(*identity, view).is_ok())
-            {
+                .any(|(identity, view)| event.validate(*identity, view).is_ok());
+            if valid {
+                if !publish(&event) {
+                    return None;
+                }
+                self.events[self.start] = Event::EMPTY;
+                self.start = (self.start + 1) % CAPACITY;
+                self.len -= 1;
                 return Some(event);
             }
+            self.events[self.start] = Event::EMPTY;
+            self.start = (self.start + 1) % CAPACITY;
+            self.len -= 1;
         }
         None
     }

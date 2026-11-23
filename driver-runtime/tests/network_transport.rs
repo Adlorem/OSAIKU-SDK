@@ -220,23 +220,32 @@ fn duplicate_rx_is_not_parsed_twice_and_pending_return_survives_batch_error() {
     };
     producer.push(entry).unwrap();
     producer.push(entry).unwrap();
+    producer.push(Entry { slot: 1, ..entry }).unwrap();
+    queues[0].space.0.store(1, Ordering::Relaxed);
     let mut seen = 0;
+    let mut wakes = 0;
     assert_eq!(
-        client.poll(1, 100, &mut [0; 4096], |_| seen += 1, || {}),
+        client.poll(1, 100, &mut [0; 4096], |_| seen += 1, || wakes += 1),
         Err(Error::State)
     );
     assert_eq!(seen, 1);
-    client
-        .poll(2, 100, &mut [0; 4096], |_| panic!("duplicate RX"), || {})
-        .unwrap();
-    let mut returns = unsafe { queues[1].consumer() };
-    let (b, _) = returns.pop().unwrap();
+    assert_eq!(wakes, 1);
+    assert_eq!(queues[0].cons.0.load(Ordering::Acquire), 2);
     assert_eq!(
-        Entry::decode(b, geometry(), RingKind::RxReturn)
-            .unwrap()
-            .slot,
-        0
+        client.poll(2, 100, &mut [0; 4096], |_| seen += 1, || {}),
+        Ok(1)
     );
+    assert_eq!(seen, 2);
+    let mut returns = unsafe { queues[1].consumer() };
+    for slot in [0, 1] {
+        let (b, _) = returns.pop().unwrap();
+        assert_eq!(
+            Entry::decode(b, geometry(), RingKind::RxReturn)
+                .unwrap()
+                .slot,
+            slot
+        );
+    }
     assert_eq!(returns.available(), Ok(0));
 }
 

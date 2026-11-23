@@ -17,6 +17,8 @@ fn departure_is_retained_until_taken_and_does_not_cross_incarnations() {
     assert!(o.subscribe(k)); // duplicate registration must not erase departure
     assert!(o.pending());
     assert!(!o.departed(k.endpoint, None));
+    assert_eq!(o.peek(), Some(k));
+    assert_eq!(o.peek(), Some(k)); // failed output does not consume
     assert_eq!(o.take(), Some(k));
     assert_eq!(o.take(), None);
 }
