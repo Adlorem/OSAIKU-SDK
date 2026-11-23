@@ -111,16 +111,12 @@ impl<D: Device, const N: usize> Driver<D, N> {
         let mut wake = false;
         let mut count = 0;
         let result = (|| {
-            for _ in 0..self.geometry.capacity {
-                if self.rx_return.available()? == 0 {
-                    break;
-                }
-                let (b, hint) = self.rx_return.pop()?;
-                wake |= hint;
+            self.rx_return.drain(&mut wake, |b| {
                 let e = Entry::decode(b, self.geometry, RingKind::RxReturn)?;
                 self.rx_owner.receive(e)?;
                 self.device.recycle_rx(e.slot)?;
-            }
+                Ok(())
+            })?;
             for _ in 0..self.geometry.capacity {
                 let Some((slot, length, status)) = self.device.complete_tx()? else {
                     break;
@@ -135,23 +131,9 @@ impl<D: Device, const N: usize> Driver<D, N> {
                 self.returns.push(e, now, timeout)?;
                 self.tx_lengths[slot as usize] = 0;
             }
-            for _ in 0..self.geometry.capacity {
-                let Some(e) = self.returns.front() else {
-                    break;
-                };
-                if self.tx_done.available()? == 0 {
-                    break;
-                }
-                wake |= self.tx_done.push(e)?;
-                self.tx_owner.returned(e)?;
-                self.returns.published()?;
-            }
-            for _ in 0..self.geometry.capacity {
-                if self.tx.available()? == 0 {
-                    break;
-                }
-                let (b, hint) = self.tx.pop()?;
-                wake |= hint;
+            self.tx_done
+                .publish_returns(&mut self.returns, &mut self.tx_owner, &mut wake)?;
+            self.tx.drain(&mut wake, |b| {
                 let e = Entry::decode(b, self.geometry, RingKind::TxSubmit)?;
                 self.tx_owner.receive(e)?;
                 match self.device.transmit(e.slot, e.length) {
@@ -169,7 +151,8 @@ impl<D: Device, const N: usize> Driver<D, N> {
                         self.returns.push(done, now, timeout)?;
                     }
                 }
-            }
+                Ok(())
+            })?;
             for _ in 0..self.geometry.capacity {
                 let Some((slot, length)) = self.device.receive()? else {
                     break;

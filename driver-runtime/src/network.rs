@@ -281,6 +281,7 @@ impl<const N: usize> Ownership<N> {
 /// pending return per slot. The caller transitions its private ledger first.
 pub struct Returns<const N: usize> {
     entries: [Entry; N],
+    queued: [bool; N],
     head: usize,
     count: usize,
     limit: usize,
@@ -293,6 +294,7 @@ impl<const N: usize> Returns<N> {
         }
         Ok(Self {
             entries: [Entry::default(); N],
+            queued: [false; N],
             head: 0,
             count: 0,
             limit: slots,
@@ -306,18 +308,20 @@ impl<const N: usize> Returns<N> {
         if timeout == 0 || now.checked_add(timeout).is_none() {
             return Err(Error::Deadline);
         }
-        if self.entries().any(|p| p.slot == e.slot) {
+        let slot = e.slot as usize;
+        if slot >= self.limit {
+            return Err(Error::Range);
+        }
+        if self.queued[slot] {
             return Err(Error::State);
         }
         self.entries[(self.head + self.count) % self.limit] = e;
+        self.queued[slot] = true;
         if self.count == 0 {
             self.deadline = Some(now + timeout);
         }
         self.count += 1;
         Ok(())
-    }
-    fn entries(&self) -> impl Iterator<Item = Entry> + '_ {
-        (0..self.count).map(|i| self.entries[(self.head + i) % self.limit])
     }
     pub fn front(&self) -> Option<Entry> {
         (self.count != 0).then(|| self.entries[self.head])
@@ -326,6 +330,7 @@ impl<const N: usize> Returns<N> {
         if self.count == 0 {
             return Err(Error::State);
         }
+        self.queued[self.entries[self.head].slot as usize] = false;
         self.head = (self.head + 1) % self.limit;
         self.count -= 1;
         if self.count == 0 {

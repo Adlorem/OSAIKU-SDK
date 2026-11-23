@@ -150,12 +150,7 @@ impl<const N: usize> Consumer<N> {
         let mut wake = false;
         let mut packets = 0;
         let result = (|| {
-            for _ in 0..self.geometry.capacity {
-                if self.tx_done.available()? == 0 {
-                    break;
-                }
-                let (bytes, hint) = self.tx_done.pop()?;
-                wake |= hint;
+            self.tx_done.drain(&mut wake, |bytes| {
                 let e = Entry::decode(bytes, self.geometry, RingKind::TxDone)?;
                 let expected = self.tx_lengths[e.slot as usize];
                 if e.length > expected || (e.status == COMPLETED && e.length != expected) {
@@ -164,13 +159,9 @@ impl<const N: usize> Consumer<N> {
                 self.tx_owner.receive(e)?;
                 self.tx_available[e.slot as usize] = true;
                 self.tx_lengths[e.slot as usize] = 0;
-            }
-            for _ in 0..self.geometry.capacity {
-                if self.rx.available()? == 0 {
-                    break;
-                }
-                let (bytes, hint) = self.rx.pop()?;
-                wake |= hint;
+                Ok(())
+            })?;
+            self.rx.drain(&mut wake, |bytes| {
                 let e = Entry::decode(bytes, self.geometry, RingKind::RxDone)?;
                 self.rx_owner.receive(e)?;
                 let n = unsafe { network_ring::copy_rx(self.rx_data, self.geometry, e, scratch) }?;
@@ -191,18 +182,10 @@ impl<const N: usize> Consumer<N> {
                 };
                 self.returns.push(returned, now, return_timeout)?;
                 self.rx_owner.queue_return(returned)?;
-            }
-            for _ in 0..self.geometry.capacity {
-                let Some(e) = self.returns.front() else {
-                    break;
-                };
-                if self.rx_return.available()? == 0 {
-                    break;
-                }
-                wake |= self.rx_return.push(e)?;
-                self.rx_owner.returned(e)?;
-                self.returns.published()?;
-            }
+                Ok(())
+            })?;
+            self.rx_return
+                .publish_returns(&mut self.returns, &mut self.rx_owner, &mut wake)?;
             Ok(packets)
         })();
         if wake {
