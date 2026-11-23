@@ -35,6 +35,7 @@ comments between rules are supported.
 | ui-chart | Percent history, timestamped series with missing readings |
 | ui-value-bar | Percent meter; unavailable is distinct from zero |
 | ui-slider | Percent control; a press or drag sends `VALUE`, `bind:value` places the thumb |
+| ui-switch | On/off switch: on while selected (`bind:selected`); with an action a press activates it |
 | ui-separator, ui-icon | Separator; decorative square mark, or a host image with `src` |
 | ui-popup-menu | Menu above the document at an anchor point (context menu) |
 
@@ -61,7 +62,7 @@ sample has only `0 s`, even if its value is unavailable. Lines and point markers
 are clipped to the plot; labels respect the chart and scroll viewport clips.
 Two series together fit 120 points. `Bindings` resolves locally; callbacks
 never enter encoded content. Data text is literal. `action` names application
-behavior, only on buttons/selectable rows/text inputs/text areas/sliders; it grants no system privileges.
+behavior, only on buttons/selectable rows/text inputs/text areas/sliders/switches; it grants no system privileges.
 
 `ui-slider` draws a round thumb two thirds as tall as its content box (the
 whole box is the press target) on a track a third of the thumb's height,
@@ -74,6 +75,17 @@ motion outside it and repaint revisions of the same window, and sends a new
 and input. The application snaps the value and answers with `bind:value`; an
 unavailable value hides the thumb. No key moves a slider yet, so focus
 traversal skips it.
+
+`ui-switch` draws a round knob as tall as its content box (44x24 by
+default) over a pill track seven tenths as thick: at the left end in the
+`muted` colour on the `track` token while off, at the right end in the
+element's `color` (the theme `accent` by default) on a translucent tint of it
+while on, i.e. while the node is selected. Disabled switches are faded and a
+focused one has an accent ring. With an `action` a press or Enter sends
+`ACTIVATE`, as for a button, and the application answers with the new
+`bind:selected`. Without an action it only shows a state: inside a menu entry
+(`ui-list-item` with the action) a press on the switch activates the entry.
+`switch::geometry` places the track and both knob positions.
 
 `ui-text-input` renders bounded literal text and participates in focus, clipping
 and scrolling. A pointer press sends `FOCUS` without executing the field's
@@ -117,6 +129,13 @@ part for the laid-out text box, moving the scroll to keep the caret in view,
 and fills a `Frame`; keep the frame of each submitted revision and map `CARET`
 and `SELECT` offsets with `Frame::source`. `text_area::motion` moves a caret
 for an `EDIT` value (words, lines with a remembered pixel column, pages).
+
+For word wrapping, pass `Options { wrap: true, longest: 0 }` to
+`text_area::compose_with`. `Frame::numbers` labels only the first visual row
+of each source line. For unwrapped text, supply the longest line's column count
+and copy `Composed::scroll_x` into `Node::scroll_x` so the horizontal scrollbar
+can track the viewport. Use `horizontal_scroll_event_position` to recognize its
+`VALUE` events. The vertical scrollbar reports positions from 0 to 10000.
 Lay the document out with `Layout::compute_into` in `render_for_viewport` to
 know the text box. Notepad (`apps/notepad`) is the reference application.
 

@@ -151,7 +151,14 @@ impl Pointer {
                     target,
                     element: e.element,
                     last: e.value,
-                    kind: if e.kind == CARET { SELECT } else { VALUE },
+                    // A text area's horizontal scrollbar follows the pointer's x.
+                    kind: if e.kind == CARET {
+                        SELECT
+                    } else if e.value >= crate::text_area::HORIZONTAL_SCROLL_EVENT_BASE {
+                        SCROLL
+                    } else {
+                        VALUE
+                    },
                 });
             }
             return event;
@@ -194,6 +201,9 @@ impl Pointer {
         let event = match (view.nodes[index].kind, capture.kind) {
             (crate::Kind::TextArea, SELECT) => {
                 area_event(view, scene, target, index, x, y, SELECT)?
+            }
+            (crate::Kind::TextArea, SCROLL) => {
+                area_horizontal_scroll_event(view, scene, target, index, x)?
             }
             (crate::Kind::TextArea, _) => area_strip_event(view, scene, target, index, y)?,
             _ => slider_event(view, scene, target, index, x)?,
@@ -501,6 +511,10 @@ pub fn pointer_event(
     if view.nodes[index].kind == crate::Kind::TextArea {
         return area_strip_event(view, scene, target, index, y)
             .filter(|_| area_strip_holds(view, scene, index, x, y))
+            .or_else(|| {
+                area_horizontal_scroll_event(view, scene, target, index, x)
+                    .filter(|_| area_horizontal_scrollbar_contains(view, scene, index, x, y))
+            })
             .or_else(|| area_event(view, scene, target, index, x, y, CARET));
     }
     // A pointer press enters a text field; only keyboard activation submits
@@ -562,9 +576,48 @@ fn area_geometry(
     let style = layout.style(view, index);
     let content = placed.bounds.inset(view.insets(style));
     Some((
-        crate::text_area::geometry(content, node.value),
+        crate::text_area::geometry_with_scroll(content, node.value, node.scroll_x),
         style.font_size,
     ))
+}
+fn area_horizontal_scrollbar_contains(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    index: usize,
+    x: i32,
+    y: i32,
+) -> bool {
+    area_geometry(view, scene, index)
+        .and_then(|(g, _)| g.horizontal_track)
+        .is_some_and(|side| {
+            Rect {
+                y: side.y - 2,
+                height: side.height + 2,
+                ..side
+            }
+            .contains(x, y)
+        })
+}
+/// The horizontal scrollbar's value under `x`: a VALUE event at
+/// `text_area::HORIZONTAL_SCROLL_EVENT_BASE` plus the position, with the area's action.
+fn area_horizontal_scroll_event(
+    view: &Document,
+    scene: &crate::paint::Scene<'_, impl AsRef<crate::layout::Layout>>,
+    target: Identity,
+    index: usize,
+    x: i32,
+) -> Option<Event> {
+    let (g, _) = area_geometry(view, scene, index)?;
+    let event = Event {
+        target,
+        element: view.nodes[index].id,
+        kind: VALUE,
+        value: crate::text_area::HORIZONTAL_SCROLL_EVENT_BASE
+            + i32::from(g.horizontal_position(x)?),
+        action: view.nodes[index].action,
+    };
+    event.validate(target, view).ok()?;
+    Some(event)
 }
 fn area_strip_holds(
     view: &Document,
@@ -819,6 +872,12 @@ impl Event {
                     && node.action != 0
                     && node.value <= 10000
                     && (0..=10000).contains(&self.value) => {}
+            VALUE
+                if node.kind == crate::Kind::TextArea
+                    && node.action != 0
+                    && crate::text_area::decode_horizontal_scroll(node.scroll_x).is_some()
+                    && crate::text_area::horizontal_scroll_event_position(self.value).is_some() => {
+            }
             FOCUS if node.action != 0 && self.value == 0 => {}
             HOVER if node.kind == crate::Kind::Tooltip && (0..=1).contains(&self.value) => {}
             VALUE

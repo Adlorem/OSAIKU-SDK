@@ -139,6 +139,19 @@ pub fn file_browser_devices(
         devices as *mut _ as u64,
     ) as isize
 }
+pub fn file_browser_picker(
+    window: u64,
+    generation: u64,
+    picker: &mut crate::file_browser::Picker,
+) -> isize {
+    syscall4(
+        crate::file_browser::SYSCALL,
+        crate::file_browser::PICKER,
+        window,
+        generation,
+        picker as *mut _ as u64,
+    ) as isize
+}
 pub fn file_browser_viewport(window: u64, generation: u64, first: u64, hash: u64) -> isize {
     syscall5(
         crate::file_browser::SYSCALL,

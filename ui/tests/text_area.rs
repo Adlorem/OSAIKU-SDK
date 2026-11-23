@@ -183,6 +183,82 @@ fn the_position_strip_sends_values_and_follows_a_drag() {
     assert_eq!(e.kind, input::CARET);
 }
 
+#[test]
+fn horizontal_scrollbar_values_round_trip_and_follow_a_drag() {
+    let text = "a long line\nb";
+    let mut d = area(text, text_area::pack(0, 0, true), 0, false);
+    let i = at(&d, "editor");
+    d.nodes[i].scroll_x = text_area::encode_horizontal_scroll(Some(0));
+    d.validate().unwrap();
+    let mut bytes = [0u8; MAX_WIRE];
+    let len = d.encode(&mut bytes).unwrap();
+    assert_eq!(Document::decode(&bytes[..len]).unwrap(), d);
+    let scene = Scene::from_document(&d, 300, 300).unwrap();
+    let p = scene.layout().nodes[i];
+    let content = p.bounds.inset(d.insets(scene.layout().style(&d, i)));
+    let g = text_area::geometry_with_scroll(content, 0, d.nodes[i].scroll_x);
+    // The editor uses the same VALUE event for both axes.
+    let vertical = g.track.unwrap();
+    for y in [vertical.y, vertical.bottom() - 1] {
+        let event = input::pointer_event(&d, &scene, IDENTITY, vertical.x + 3, y).unwrap();
+        assert_eq!(event.kind, input::VALUE);
+        assert_eq!(
+            text_area::horizontal_scroll_event_position(event.value),
+            None
+        );
+    }
+    assert_eq!(
+        text_area::horizontal_scroll_event_position(text_area::HORIZONTAL_SCROLL_EVENT_BASE),
+        Some(0)
+    );
+    assert_eq!(
+        text_area::horizontal_scroll_event_position(
+            text_area::HORIZONTAL_SCROLL_EVENT_BASE + 10_000
+        ),
+        Some(10_000)
+    );
+    let side = g.horizontal_track.unwrap();
+    assert!(side.bottom() <= content.bottom() && side.right() <= g.track.unwrap().x);
+    let mut pointer = input::Pointer::EMPTY;
+    let press = pointer
+        .event(&d, &scene, IDENTITY, Press, side.x, side.y + 4)
+        .unwrap();
+    assert_eq!(
+        (press.kind, press.value, press.action),
+        (
+            input::VALUE,
+            text_area::HORIZONTAL_SCROLL_EVENT_BASE,
+            symbol("editor")
+        )
+    );
+    let right = pointer
+        .event(&d, &scene, IDENTITY, Move, side.right() + 90, side.y - 70)
+        .unwrap();
+    assert_eq!(
+        (right.kind, right.value),
+        (
+            input::VALUE,
+            text_area::HORIZONTAL_SCROLL_EVENT_BASE + 10000
+        )
+    );
+    pointer.event(&d, &scene, IDENTITY, Release, 0, 0);
+    assert!(input::Event {
+        value: text_area::HORIZONTAL_SCROLL_EVENT_BASE + 10001,
+        ..press
+    }
+    .validate(IDENTITY, &d)
+    .is_err());
+    // Without a strip the same values are refused and the press is text.
+    d.nodes[i].scroll_x = 0;
+    assert!(press.validate(IDENTITY, &d).is_err());
+    let scene = Scene::from_document(&d, 300, 300).unwrap();
+    let e = input::pointer_event(&d, &scene, IDENTITY, side.x + 30, side.y + 4).unwrap();
+    assert_eq!(e.kind, input::CARET);
+    // Only a text area carries the field.
+    d.nodes[0].scroll_x = 1;
+    assert_eq!(d.validate(), Err(Error::Value));
+}
+
 #[derive(Default)]
 struct Record {
     fills: Vec<(layout::Rect, u32, u8)>,

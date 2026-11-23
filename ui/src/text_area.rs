@@ -5,9 +5,12 @@
 //! joined by `'\n'`. The node says where the caret and the selection anchor
 //! fall in that part (`Node::scroll_y`, see [`pack`]) and where the shown part
 //! sits in the whole text for the scroll bar (`Node::value`, 0..=10000, or
-//! 10001 when everything fits). Paint, hit testing and the application's own
-//! scrolling share the placement below, so a press lands on the character it
-//! is drawn over.
+//! 10001 when everything fits). With word wrap a long line is shown as
+//! several rows, each its own `'\n'`-separated part. Without it, lines wider
+//! than the box get a horizontal scrollbar along the bottom (`Node::scroll_x`, see
+//! [`encode_horizontal_scroll`]). Paint, hit testing and the application's own scrolling
+//! share the placement below, so a press lands on the character it is drawn
+//! over.
 use crate::layout::Rect;
 
 const FIELD: u32 = 13;
@@ -86,35 +89,107 @@ pub const fn rows(height: u32, size: u16) -> (usize, usize) {
 }
 
 /// Width of the scroll strip at the right edge of the content box, present
-/// while `Node::value` holds a position.
+/// while `Node::value` holds a position, and height of the horizontal scrollbar
+/// along the bottom while `Node::scroll_x` holds one.
 pub const BAR: u32 = 10;
 const THUMB: u32 = 32;
+const HORIZONTAL_THUMB: u32 = 48;
+/// A VALUE event at `HORIZONTAL_SCROLL_EVENT_BASE + p` moves the horizontal scrollbar to `p`
+/// (0..=10000); a plain VALUE moves the strip at the right edge.
+pub const HORIZONTAL_SCROLL_EVENT_BASE: i32 = 0x1_0000;
+
+/// Extract the position from a horizontal scrollbar VALUE event.
+pub fn horizontal_scroll_event_position(value: i32) -> Option<u16> {
+    let position = value.checked_sub(HORIZONTAL_SCROLL_EVENT_BASE)?;
+    (0..=10_000).contains(&position).then_some(position as u16)
+}
+
+/// `Node::scroll_x` for a horizontal scrollbar at `position` (0..=10000), or none.
+/// The node keeps the position in 255 steps, enough to place its thumb.
+pub const fn encode_horizontal_scroll(position: Option<u16>) -> u8 {
+    match position {
+        Some(p) => {
+            let p = if p > 10000 { 10000 } else { p };
+            1 + ((p as u32 * 254 + 5000) / 10000) as u8
+        }
+        None => 0,
+    }
+}
+/// The horizontal scrollbar's position (0..=10000) in `Node::scroll_x`, if any.
+pub const fn decode_horizontal_scroll(scroll_x: u8) -> Option<u16> {
+    if scroll_x == 0 {
+        None
+    } else {
+        Some(((scroll_x as u32 - 1) * 10000 / 254) as u16)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometry {
     /// Where the lines are drawn.
     pub text: Rect,
     pub track: Option<Rect>,
+    /// The horizontal scrollbar along the bottom.
+    pub horizontal_track: Option<Rect>,
 }
 pub fn geometry(content: Rect, value: u16) -> Geometry {
-    if value > 10000 || content.width <= BAR * 2 || content.height == 0 {
-        return Geometry {
-            text: content,
-            track: None,
-        };
+    geometry_with_scroll(content, value, 0)
+}
+/// The placement of an area with strip position `value` (`Node::value`)
+/// and horizontal scrollbar `scroll_x` (`Node::scroll_x`).
+pub fn geometry_with_scroll(content: Rect, value: u16, scroll_x: u8) -> Geometry {
+    let mut g = Geometry {
+        text: content,
+        track: None,
+        horizontal_track: None,
+    };
+    if content.width <= BAR * 2 || content.height == 0 {
+        return g;
     }
-    Geometry {
-        text: Rect {
-            width: content.width - BAR - 2,
+    if decode_horizontal_scroll(scroll_x).is_some() && content.height > BAR * 3 {
+        g.text.height = content.height - BAR - 2;
+        g.horizontal_track = Some(Rect {
+            y: content.bottom() - BAR as i32,
+            height: BAR,
             ..content
-        },
-        track: Some(Rect {
+        });
+    }
+    if value <= 10000 {
+        g.text.width = content.width - BAR - 2;
+        g.track = Some(Rect {
             x: content.right() - BAR as i32,
             width: BAR,
+            height: g.text.height,
             ..content
-        }),
+        });
+        if let Some(side) = g.horizontal_track.as_mut() {
+            side.width = g.text.width;
+        }
     }
+    g
 }
 impl Geometry {
+    pub fn horizontal_thumb(&self, scroll_x: u8) -> Option<Rect> {
+        let side = self.horizontal_track?;
+        let width = HORIZONTAL_THUMB.min(side.width);
+        let travel = side.width - width;
+        let at = decode_horizontal_scroll(scroll_x).unwrap_or(0);
+        Some(Rect {
+            x: side.x + (u64::from(travel) * u64::from(at.min(10000)) / 10000) as i32,
+            width,
+            ..side
+        })
+    }
+    /// The horizontal position (0..=10000) that puts its thumb's middle at `x`.
+    pub fn horizontal_position(&self, x: i32) -> Option<u16> {
+        let side = self.horizontal_track?;
+        let width = HORIZONTAL_THUMB.min(side.width);
+        let travel = i64::from(side.width - width);
+        if travel == 0 {
+            return Some(0);
+        }
+        let at = (i64::from(x) - i64::from(side.x) - i64::from(width / 2)).clamp(0, travel);
+        Some((at * 10000 / travel) as u16)
+    }
     pub fn thumb(&self, value: u16) -> Option<Rect> {
         let track = self.track?;
         let height = THUMB.min(track.height);
@@ -287,6 +362,11 @@ struct Row {
     /// Its offset in the shown part, and the shown bytes of the line.
     shown: u16,
     len: u16,
+    /// The row begins its line (it is not the continuation of a wrapped one).
+    start: bool,
+    /// When the line continues on the next row: the bytes of the row's last
+    /// character. The offset where the next row starts belongs to that row.
+    tail: u8,
 }
 /// One composed view: the map from the shown part back to the whole text.
 /// Keep the frame of each submitted revision and read CARET and SELECT
@@ -298,6 +378,10 @@ pub struct Frame {
     /// Rows that fit wholly, and the text's lines when composed.
     pub full_rows: usize,
     pub lines: usize,
+    /// The line of the first shown row, and the first lines the position
+    /// strip can put at the top (its 0..=10000 range).
+    pub first_line: usize,
+    pub range: usize,
 }
 impl Frame {
     pub const EMPTY: Self = Self {
@@ -305,17 +389,64 @@ impl Frame {
             source: 0,
             shown: 0,
             len: 0,
+            start: true,
+            tail: 0,
         }; MAX_ROWS],
         len: 0,
         full_rows: 0,
         lines: 1,
+        first_line: 0,
+        range: 0,
     };
     /// The whole-text offset of a shown offset (a CARET or SELECT value).
     pub fn source(&self, shown: usize) -> Option<usize> {
         let rows = &self.rows[..self.len];
         let row = rows.iter().rev().find(|r| usize::from(r.shown) <= shown)?;
         let within = (shown - usize::from(row.shown)).min(usize::from(row.len));
+        if within == usize::from(row.len) && row.tail != 0 {
+            // Past the end of a wrapped row: before its last character, so
+            // the caret stays on this row.
+            return Some(row.source + within - usize::from(row.tail));
+        }
         Some(row.source + within)
+    }
+    /// The shown rows' line numbers, one per row joined by `'\n'`, blank on
+    /// the continuation rows of a wrapped line. Returns the bytes written.
+    pub fn numbers(&self, out: &mut [u8]) -> usize {
+        let mut used = 0;
+        let mut line = self.first_line;
+        for (i, row) in self.rows[..self.len].iter().enumerate() {
+            if i != 0 {
+                if row.start {
+                    line += 1;
+                }
+                if used >= out.len() {
+                    break;
+                }
+                out[used] = b'\n';
+                used += 1;
+            }
+            if row.start {
+                let mut digits = [0u8; 20];
+                let mut n = line + 1;
+                let mut k = digits.len();
+                loop {
+                    k -= 1;
+                    digits[k] = b'0' + (n % 10) as u8;
+                    n /= 10;
+                    if n == 0 {
+                        break;
+                    }
+                }
+                let number = &digits[k..];
+                if used + number.len() > out.len() {
+                    break;
+                }
+                out[used..used + number.len()].copy_from_slice(number);
+                used += number.len();
+            }
+        }
+        used
     }
     /// The shown offset of a whole-text offset, clamped to the nearest shown
     /// byte, and whether it is in view.
@@ -327,6 +458,7 @@ impl Frame {
         if at < first.source {
             return (0, false);
         }
+        let _ = text;
         for (i, row) in rows.iter().enumerate() {
             let end = row.source + usize::from(row.len);
             let next = rows.get(i + 1).map_or(usize::MAX, |r| r.source);
@@ -334,11 +466,10 @@ impl Frame {
                 // In the cut-off start of this row's line.
                 return (usize::from(row.shown), false);
             }
-            if at <= end {
+            if at < end || (at == end && row.tail == 0) {
                 return (usize::from(row.shown) + at - row.source, true);
             }
-            let line_end = line_end(text, row.source);
-            if at <= line_end || at < next {
+            if at < next {
                 // Past the shown columns of this line.
                 return (usize::from(row.shown + row.len), false);
             }
@@ -348,8 +479,7 @@ impl Frame {
     }
     /// The first line of the text a position strip value puts at the top.
     pub fn top_for(&self, value: u16) -> usize {
-        let range = self.lines.saturating_sub(self.full_rows.max(1));
-        range * usize::from(value.min(10000)) / 10000
+        self.range * usize::from(value.min(10000)) / 10000
     }
 }
 /// What an application puts in its `ui-text-area` node for one frame.
@@ -360,6 +490,37 @@ pub struct Composed {
     pub packed: u32,
     /// `Node::value`.
     pub value: u16,
+    /// `Node::scroll_x`: the horizontal scrollbar, see [`encode_horizontal_scroll`].
+    pub scroll_x: u8,
+}
+/// How lines wider than the box are shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Break them into rows. `Scroll::left` then counts the rows of the top
+    /// line scrolled away, not columns.
+    pub wrap: bool,
+    /// Without wrap: the characters of the text's longest line, for the
+    /// horizontal scrollbar (zero for none).
+    pub longest: usize,
+}
+/// Columns of digits that fit in `width`: the unit of the horizontal scrollbar.
+fn columns(size: u16, width: u32) -> usize {
+    let digit = crate::font::ui_text_glyph('0', size).map_or(64 * 8, |g| g.advance().max(1));
+    (u64::from(width) * 64 / u64::from(digit)) as usize
+}
+/// Columns the horizontal scrollbar moves across; zero when the longest line fits.
+fn horizontal_scroll_range(longest: usize, size: u16, width: u32) -> usize {
+    (longest + 4).saturating_sub(columns(size, width))
+}
+/// Whether an unwrapped area of text box `width` needs the horizontal scrollbar.
+/// Decide this before [`geometry_with_scroll`]: the strip takes the bottom rows.
+pub fn needs_horizontal_scrollbar(options: Options, scroll: Scroll, size: u16, width: u32) -> bool {
+    !options.wrap
+        && (horizontal_scroll_range(options.longest, size, width) != 0 || scroll.left != 0)
+}
+/// The first shown column the horizontal scrollbar puts at `position`.
+pub fn left_for(longest: usize, size: u16, width: u32, position: u16) -> usize {
+    horizontal_scroll_range(longest, size, width) * usize::from(position.min(10000)) / 10000
 }
 /// Compose the shown part of `text` for a text box of `width` x `height`
 /// pixels at `size`, into `out` (at most `MAX_AREA_TEXT` bytes are used).
@@ -378,12 +539,98 @@ pub fn compose(
     out: &mut [u8],
     frame: &mut Frame,
 ) -> Composed {
+    compose_with(
+        text,
+        scroll,
+        caret,
+        anchor,
+        follow,
+        size,
+        width,
+        height,
+        out,
+        frame,
+        Options::default(),
+    )
+}
+/// [`compose`], wrapping lines or measuring the horizontal scrollbar by `options`.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_with(
+    text: &str,
+    scroll: &mut Scroll,
+    caret: usize,
+    anchor: usize,
+    follow: bool,
+    size: u16,
+    width: u32,
+    height: u32,
+    out: &mut [u8],
+    frame: &mut Frame,
+    options: Options,
+) -> Composed {
     let out_len = out.len().min(crate::MAX_AREA_TEXT);
     let out = &mut out[..out_len];
     let (full, drawn) = rows(height, size);
     let full = full.max(1);
     let drawn = drawn.clamp(1, MAX_ROWS);
     let lines = line_count(text);
+    frame.len = 0;
+    frame.full_rows = full;
+    frame.lines = lines;
+    let (used, complete) = if options.wrap {
+        compose_wrapped(
+            text, scroll, caret, follow, size, width, full, drawn, out, frame,
+        )
+    } else {
+        compose_cut(
+            text, scroll, caret, follow, size, width, full, drawn, out, frame,
+        )
+    };
+    let shown = core::str::from_utf8(&out[..used]).unwrap_or("");
+    let (c, in_view) = frame.shown(caret, text);
+    let (a, _) = frame.shown(anchor, text);
+    // Lines that can be the top. A few long wrapped lines still scroll.
+    let mut range = lines.saturating_sub(full);
+    if range == 0 && options.wrap && (!complete || scroll.left != 0) {
+        range = lines.saturating_sub(1).max(1);
+    }
+    frame.range = range;
+    let side = horizontal_scroll_range(options.longest, size, width);
+    let scroll_x = if options.wrap || (side == 0 && scroll.left == 0) {
+        0
+    } else if side == 0 {
+        // Scrolled to a caret past an estimate that said the lines fit.
+        self::encode_horizontal_scroll(Some(10000))
+    } else {
+        self::encode_horizontal_scroll(Some((scroll.left.min(side) * 10000 / side) as u16))
+    };
+    Composed {
+        len: shown.len(),
+        packed: pack(c, a, in_view),
+        value: if range == 0 {
+            10001
+        } else {
+            (scroll.top.min(range) * 10000 / range) as u16
+        },
+        scroll_x,
+    }
+}
+/// Whole lines from `scroll.top`, each cut by `scroll.left` columns. Returns
+/// the bytes used and whether the text's end is shown.
+#[allow(clippy::too_many_arguments)]
+fn compose_cut(
+    text: &str,
+    scroll: &mut Scroll,
+    caret: usize,
+    follow: bool,
+    size: u16,
+    width: u32,
+    full: usize,
+    drawn: usize,
+    out: &mut [u8],
+    frame: &mut Frame,
+) -> (usize, bool) {
+    let lines = frame.lines;
     if follow {
         let (line, start) = line_of(text, caret);
         if line < scroll.top {
@@ -416,11 +663,10 @@ pub fn compose(
         }
     }
     scroll.top = scroll.top.min(lines.saturating_sub(1));
+    frame.first_line = scroll.top;
     let mut used = 0;
-    frame.len = 0;
-    frame.full_rows = full;
-    frame.lines = lines;
     let mut start = line_start(text, scroll.top);
+    let mut complete = false;
     for _ in 0..drawn {
         if frame.len != 0 {
             if start > text.len() || used >= out.len() {
@@ -451,27 +697,207 @@ pub fn compose(
             source: start + cut,
             shown: used as u16,
             len: shown as u16,
+            start: true,
+            tail: 0,
         };
         frame.len += 1;
         used += shown;
         if end >= text.len() {
+            complete = true;
             break;
         }
         start = end + 1;
     }
-    let shown = core::str::from_utf8(&out[..used]).unwrap_or("");
-    let (c, in_view) = frame.shown(caret, text);
-    let (a, _) = frame.shown(anchor, text);
-    let range = lines.saturating_sub(full);
-    Composed {
-        len: shown.len(),
-        packed: pack(c, a, in_view),
-        value: if range == 0 {
-            10001
+    (used, complete)
+}
+/// Where each row of `line` ends when it wraps at `width` pixels: after the
+/// last space that fits (spaces hang past the edge), or inside a word wider
+/// than a row. The last end is `line.len()`; an empty line is one row.
+pub fn wrap_ends(line: &str, size: u16, width: u32) -> impl Iterator<Item = usize> + '_ {
+    let mut start = 0;
+    let mut done = false;
+    core::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        let rest = &line[start..];
+        let mut fit = 0;
+        let mut space = 0;
+        let mut previous = None;
+        for (at, x) in boundaries(rest, size) {
+            if at > 0 && x > width as i32 {
+                break;
+            }
+            fit = at;
+            if at > 0 && matches!(previous, Some(' ' | '\t')) {
+                space = at;
+            }
+            previous = rest[at..].chars().next();
+        }
+        if fit == rest.len() {
+            done = true;
+            return Some(line.len());
+        }
+        let mut end = if space > 0 {
+            space
+        } else if fit > 0 {
+            fit
         } else {
-            (scroll.top.min(range) * 10000 / range) as u16
-        },
+            rest.chars().next().map_or(rest.len(), char::len_utf8)
+        };
+        while rest[end..].starts_with(' ') {
+            end += 1;
+        }
+        if end >= rest.len() {
+            done = true;
+            return Some(line.len());
+        }
+        start += end;
+        Some(start)
+    })
+}
+/// The rows of `line`, as `(start, end)` offsets in it.
+fn wrapped_rows(line: &str, size: u16, width: u32) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let mut start = 0;
+    wrap_ends(line, size, width).map(move |end| {
+        let row = (start, end);
+        start = end;
+        row
+    })
+}
+/// The row of `line` holding byte `at` and its bounds: the offset where a
+/// row ends belongs to the next row, the line's end to its last row.
+fn row_at(line: &str, at: usize, size: u16, width: u32) -> (usize, usize, usize) {
+    let mut found = (0, 0, line.len());
+    for (i, (start, end)) in wrapped_rows(line, size, width).enumerate() {
+        found = (i, start, end);
+        if at < end {
+            break;
+        }
     }
+    found
+}
+fn row_count(line: &str, size: u16, width: u32) -> usize {
+    wrap_ends(line, size, width).count()
+}
+/// Rows from row `scroll.left` of line `scroll.top`, every line broken to
+/// fit `width`. Returns the bytes used and whether the text's end is shown.
+#[allow(clippy::too_many_arguments)]
+fn compose_wrapped(
+    text: &str,
+    scroll: &mut Scroll,
+    caret: usize,
+    follow: bool,
+    size: u16,
+    width: u32,
+    full: usize,
+    drawn: usize,
+    out: &mut [u8],
+    frame: &mut Frame,
+) -> (usize, bool) {
+    let lines = frame.lines;
+    let line_at = |line: usize| {
+        let start = line_start(text, line);
+        (start, &text[start..line_end(text, start)])
+    };
+    scroll.top = scroll.top.min(lines.saturating_sub(1));
+    scroll.left = scroll
+        .left
+        .min(row_count(line_at(scroll.top).1, size, width) - 1);
+    if follow {
+        let (line, start) = line_of(text, caret);
+        let (row, _, _) = row_at(line_at(line).1, caret - start, size, width);
+        if (line, row) < (scroll.top, scroll.left) {
+            scroll.top = line;
+            scroll.left = row;
+        } else {
+            // Rows from the top through the caret's row, until a screen.
+            let mut count = 0;
+            let mut l = scroll.top;
+            while l <= line && count <= full {
+                let rows = if l == line {
+                    row + 1
+                } else {
+                    row_count(line_at(l).1, size, width)
+                };
+                count += rows - if l == scroll.top { scroll.left } else { 0 };
+                l += 1;
+            }
+            if count > full {
+                // The caret's row becomes the last whole row.
+                let (mut l, mut r) = (line, row);
+                let mut need = full - 1;
+                while need > 0 {
+                    if r >= need {
+                        r -= need;
+                        need = 0;
+                    } else if l == 0 {
+                        r = 0;
+                        need = 0;
+                    } else {
+                        need -= r + 1;
+                        l -= 1;
+                        r = row_count(line_at(l).1, size, width) - 1;
+                    }
+                }
+                scroll.top = l;
+                scroll.left = r;
+            }
+        }
+    }
+    frame.first_line = scroll.top;
+    let mut used = 0;
+    let mut line = scroll.top;
+    let mut skip = scroll.left;
+    let mut complete = false;
+    'lines: while frame.len < drawn {
+        let (start, text_line) = line_at(line);
+        for (i, (from, to)) in wrapped_rows(text_line, size, width).enumerate() {
+            if i < skip {
+                continue;
+            }
+            if frame.len == drawn {
+                break 'lines;
+            }
+            if frame.len != 0 {
+                if used >= out.len() {
+                    break 'lines;
+                }
+                out[used] = b'\n';
+                used += 1;
+            }
+            let row = &text_line[from..to];
+            let mut shown = row.len().min(out.len() - used);
+            while !row.is_char_boundary(shown) {
+                shown -= 1;
+            }
+            out[used..used + shown].copy_from_slice(&row.as_bytes()[..shown]);
+            let tail = if to < text_line.len() && shown == row.len() {
+                row.chars().next_back().map_or(0, char::len_utf8) as u8
+            } else {
+                0
+            };
+            frame.rows[frame.len] = Row {
+                source: start + from,
+                shown: used as u16,
+                len: shown as u16,
+                start: i == 0,
+                tail,
+            };
+            frame.len += 1;
+            used += shown;
+            if shown < row.len() {
+                break 'lines;
+            }
+        }
+        skip = 0;
+        if line + 1 >= lines {
+            complete = true;
+            break;
+        }
+        line += 1;
+    }
+    (used, complete)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -579,6 +1005,100 @@ pub fn motion(
         edit::END => line_end(text, start),
         _ => caret,
     }
+}
+
+/// [`motion`] in an area that wraps lines at `width` pixels: Up, Down and
+/// the page keys move by rows, Home and End to the ends of the caret's row.
+#[allow(clippy::too_many_arguments)]
+pub fn motion_wrapped(
+    text: &str,
+    caret: usize,
+    value: i32,
+    size: u16,
+    page: usize,
+    column: &mut Option<i32>,
+    width: u32,
+) -> usize {
+    let key = edit::key(value);
+    let control = value & edit::CONTROL != 0;
+    let rowwise = matches!(key, edit::UP | edit::DOWN | edit::PAGE_UP | edit::PAGE_DOWN)
+        || (matches!(key, edit::HOME | edit::END) && !control);
+    if !rowwise {
+        return motion(text, caret, value, size, page, column);
+    }
+    let caret = caret.min(text.len());
+    let (mut line, start) = line_of(text, caret);
+    let line_text = |line: usize| {
+        let start = line_start(text, line);
+        (start, &text[start..line_end(text, start)])
+    };
+    let (mut row, from, to) = row_at(
+        &text[start..line_end(text, start)],
+        caret - start,
+        size,
+        width,
+    );
+    match key {
+        edit::HOME => {
+            *column = None;
+            return start + from;
+        }
+        edit::END => {
+            *column = None;
+            let line_len = line_end(text, start) - start;
+            if to == line_len {
+                return start + to;
+            }
+            // Before the row's last character: the end offset is the next
+            // row's start.
+            return start
+                + text[start + from..start + to]
+                    .char_indices()
+                    .next_back()
+                    .map_or(from, |(i, _)| from + i);
+        }
+        _ => {}
+    }
+    let x = *column
+        .get_or_insert_with(|| x_of(&text[start + from..start + to], caret - start - from, size));
+    let steps = match key {
+        edit::UP | edit::DOWN => 1,
+        _ => page.max(1),
+    };
+    let up = matches!(key, edit::UP | edit::PAGE_UP);
+    let lines = line_count(text);
+    for _ in 0..steps {
+        if up {
+            if row > 0 {
+                row -= 1;
+            } else if line > 0 {
+                line -= 1;
+                row = row_count(line_text(line).1, size, width) - 1;
+            } else {
+                break;
+            }
+        } else if row + 1 < row_count(line_text(line).1, size, width) {
+            row += 1;
+        } else if line + 1 < lines {
+            line += 1;
+            row = 0;
+        } else {
+            break;
+        }
+    }
+    let (start, target) = line_text(line);
+    let (from, to) = wrapped_rows(target, size, width)
+        .nth(row)
+        .unwrap_or((0, target.len()));
+    let mut at = from + offset_in_line(&target[from..to], size, x);
+    if at == to && to < target.len() {
+        // The row's end is the next row's start: stay on this row.
+        at = target[from..to]
+            .char_indices()
+            .next_back()
+            .map_or(from, |(i, _)| from + i);
+    }
+    start + at
 }
 
 /// Validation of a node's packed fields against its shown text.
@@ -748,6 +1268,199 @@ mod tests {
         assert!(caret_shown(c.packed));
         assert_eq!(frame.source(caret(c.packed)), Some(300));
         assert!(c.len < 300);
+    }
+    #[test]
+    fn wrapping_breaks_after_spaces_and_inside_long_words() {
+        let w = width("aaaa ", 16);
+        let ends: [usize; 3] = {
+            let mut it = wrap_ends("aaaa bbbb cccc", 16, w + 2);
+            [it.next().unwrap(), it.next().unwrap(), it.next().unwrap()]
+        };
+        assert_eq!(ends, [5, 10, 14]);
+        assert_eq!(wrap_ends("", 16, 50).count(), 1);
+        // A word wider than the row breaks inside it, never into an empty row.
+        let long = "x".repeat(40);
+        let rows = wrap_ends(&long, 16, width("xxxxx", 16)).count();
+        assert!(rows >= 8);
+        assert_eq!(wrap_ends(&long, 16, 0).count(), 40);
+    }
+    #[test]
+    fn wrapped_rows_map_back_and_number_their_lines() {
+        let text = "aaaa bbbb cccc\nshort\nlast";
+        let w = width("aaaa ", 16) + 2;
+        let mut scroll = Scroll::default();
+        let mut out = [0u8; 256];
+        let mut frame = Frame::EMPTY;
+        let wrap = Options {
+            wrap: true,
+            longest: 0,
+        };
+        let h = line_height(16) * 10;
+        let c = compose_with(
+            text,
+            &mut scroll,
+            11,
+            11,
+            false,
+            16,
+            w,
+            h,
+            &mut out,
+            &mut frame,
+            wrap,
+        );
+        let shown = core::str::from_utf8(&out[..c.len]).unwrap();
+        assert_eq!(shown, "aaaa \nbbbb \ncccc\nshort\nlast");
+        assert_eq!(c.scroll_x, 0);
+        assert_eq!(c.value, 10001);
+        // Offset 11 is in "cccc", the third row.
+        assert_eq!(caret(c.packed), 13);
+        assert_eq!(frame.source(13), Some(11));
+        // A press past a wrapped row's end stays on that row.
+        assert_eq!(frame.source(5), Some(4));
+        // The row boundary itself belongs to the next row.
+        let c = compose_with(
+            text,
+            &mut scroll,
+            5,
+            5,
+            false,
+            16,
+            w,
+            h,
+            &mut out,
+            &mut frame,
+            wrap,
+        );
+        assert_eq!(caret(c.packed), 6);
+        let mut numbers = [0u8; 64];
+        let n = frame.numbers(&mut numbers);
+        assert_eq!(&numbers[..n], b"1\n\n\n2\n3");
+        // Following a caret below scrolls by rows, into the middle of a line.
+        let small = line_height(16) * 2;
+        let c = compose_with(
+            text,
+            &mut scroll,
+            11,
+            11,
+            true,
+            16,
+            w,
+            small,
+            &mut out,
+            &mut frame,
+            wrap,
+        );
+        assert_eq!((scroll.top, scroll.left), (0, 1));
+        let shown = core::str::from_utf8(&out[..c.len]).unwrap();
+        assert_eq!(shown, "bbbb \ncccc");
+        assert_ne!(c.value, 10001);
+        let n = frame.numbers(&mut numbers);
+        assert_eq!(&numbers[..n], b"\n");
+    }
+    #[test]
+    fn rows_move_up_and_down_in_wrapped_lines() {
+        let text = "aaaa bbbb cccc\nshort";
+        let w = width("aaaa ", 16) + 2;
+        let mut column = None;
+        let down = motion_wrapped(text, 1, edit::DOWN, 16, 5, &mut column, w);
+        assert_eq!(down, 6);
+        let down = motion_wrapped(text, down, edit::DOWN, 16, 5, &mut column, w);
+        assert_eq!(down, 11);
+        let down = motion_wrapped(text, down, edit::DOWN, 16, 5, &mut column, w);
+        assert_eq!(down, 16);
+        let up = motion_wrapped(text, down, edit::UP, 16, 5, &mut column, w);
+        assert_eq!(up, 11);
+        let mut column = None;
+        assert_eq!(
+            motion_wrapped(text, 7, edit::HOME, 16, 5, &mut column, w),
+            5
+        );
+        // End stays on the row: before the space the next row starts after.
+        assert_eq!(motion_wrapped(text, 7, edit::END, 16, 5, &mut column, w), 9);
+        assert_eq!(
+            motion_wrapped(text, 11, edit::END, 16, 5, &mut column, w),
+            14
+        );
+    }
+    #[test]
+    fn long_unwrapped_lines_get_a_horizontal_scrollbar() {
+        let line = "x".repeat(300);
+        let mut scroll = Scroll::default();
+        let mut out = [0u8; 1024];
+        let mut frame = Frame::EMPTY;
+        let options = Options {
+            wrap: false,
+            longest: 300,
+        };
+        assert!(needs_horizontal_scrollbar(options, scroll, 16, 200));
+        assert!(!needs_horizontal_scrollbar(
+            Options {
+                wrap: false,
+                longest: 3
+            },
+            scroll,
+            16,
+            200
+        ));
+        let c = compose_with(
+            &line,
+            &mut scroll,
+            0,
+            0,
+            false,
+            16,
+            200,
+            40,
+            &mut out,
+            &mut frame,
+            options,
+        );
+        assert_eq!(decode_horizontal_scroll(c.scroll_x), Some(0));
+        let c = compose_with(
+            &line,
+            &mut scroll,
+            300,
+            300,
+            true,
+            16,
+            200,
+            40,
+            &mut out,
+            &mut frame,
+            options,
+        );
+        assert!(decode_horizontal_scroll(c.scroll_x).unwrap() > 9000);
+        let g = geometry_with_scroll(
+            Rect {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 100,
+            },
+            0,
+            c.scroll_x,
+        );
+        let side = g.horizontal_track.unwrap();
+        assert_eq!(side.bottom(), 100);
+        assert_eq!(g.text.height, 100 - BAR - 2);
+        assert_eq!(g.track.unwrap().height, g.text.height);
+        assert_eq!(side.width, g.text.width);
+        assert_eq!(g.horizontal_position(0), Some(0));
+        assert_eq!(g.horizontal_position(1000), Some(10000));
+        assert_eq!(
+            left_for(300, 16, 200, 10000),
+            horizontal_scroll_range(300, 16, 200)
+        );
+        assert_eq!(encode_horizontal_scroll(None), 0);
+        assert_eq!(
+            decode_horizontal_scroll(encode_horizontal_scroll(Some(10000))),
+            Some(10000)
+        );
+        assert_eq!(
+            decode_horizontal_scroll(encode_horizontal_scroll(Some(0))),
+            Some(0)
+        );
     }
     #[test]
     fn motion_follows_words_lines_and_columns() {

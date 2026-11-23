@@ -187,3 +187,32 @@ fn retired_model_picker_is_refused() {
     }
     .canonical());
 }
+
+#[test]
+fn files_view_keeps_the_legacy_name_layout_and_hash_without_a_picker() {
+    use osaiku_runtime::{
+        file_browser::picker_mode,
+        file_manager::{View, MAGIC},
+    };
+
+    assert_eq!(core::mem::size_of::<View>(), 3168);
+    assert_eq!(core::mem::offset_of!(View, edit_len), 16);
+    assert_eq!(core::mem::offset_of!(View, edit_name), 24);
+
+    let mut view = View {
+        magic: MAGIC,
+        generation: 3,
+        parent: osaiku_runtime::files::ROOT,
+        edit_len: 3,
+        ..View::EMPTY
+    };
+    view.edit_name[..3].copy_from_slice(b"old");
+    // Captured with the v6 view before Files presented picker requests.
+    let previous_hash = 0xe961_ab33_3c5f_0c08;
+    assert_eq!(view.content_hash(), previous_hash);
+    view.picker_mode = picker_mode::SAVE_IN_WINDOW as u8;
+    assert_ne!(view.content_hash(), previous_hash);
+    assert!(view.canonical());
+    view.reserved[0] = 1;
+    assert!(!view.canonical());
+}

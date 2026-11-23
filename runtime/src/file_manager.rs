@@ -229,7 +229,15 @@ pub struct View {
     pub context: u64,
     /// Where the open menu is anchored (`point(x, y)`, content pixels).
     pub anchor: u64,
-    pub edit_len: u64,
+    /// The name being edited: the renamed entry's while `context` is 2, and
+    /// with no menu open the file name typed in the save bar, which the
+    /// kernel reads from the presented frame when the person presses Save.
+    pub edit_len: u8,
+    /// The application request this window presents (`file_browser::Picker::mode`).
+    pub picker_mode: u8,
+    /// These bytes were part of the 64-bit name length before picker modes.
+    /// Keep the name and the rest of the published view at their original offsets.
+    pub reserved: [u8; 6],
     pub edit_name: [u8; NAME_BYTES],
     pub devices: crate::file_browser::Devices,
     pub location: crate::file_browser::Location,
@@ -257,6 +265,8 @@ impl View {
         context: 0,
         anchor: 0,
         edit_len: 0,
+        picker_mode: crate::file_browser::picker_mode::NONE as u8,
+        reserved: [0; 6],
         edit_name: [0; NAME_BYTES],
         location: crate::file_browser::Location::EMPTY,
         devices: crate::file_browser::Devices::EMPTY,
@@ -280,11 +290,13 @@ impl View {
         if self.magic != MAGIC
             || self.context > 2
             || !point_canonical(self.anchor)
-            || self.edit_len > NAME_BYTES as u64
+            || self.reserved != [0; 6]
+            || usize::from(self.edit_len) > NAME_BYTES
             || self.edit_name[self.edit_len as usize..]
                 .iter()
                 .any(|b| *b != 0)
             || core::str::from_utf8(&self.edit_name[..self.edit_len as usize]).is_err()
+            || u64::from(self.picker_mode) > crate::file_browser::picker_mode::SAVE_AVAILABLE
             || (self.context != 0 && self.selected == 0)
             || !self.location.canonical()
             || !self.devices.canonical()
@@ -351,7 +363,9 @@ impl View {
         fold(b"osaiku.file-manager.content.v6");
         fold(&self.context.to_le_bytes());
         fold(&self.anchor.to_le_bytes());
-        fold(&self.edit_len.to_le_bytes());
+        // A view without a picker keeps the v6 name-length bytes and hash.
+        let name_field = u64::from(self.edit_len) | (u64::from(self.picker_mode) << 8);
+        fold(&name_field.to_le_bytes());
         fold(&self.edit_name);
         fold(&self.devices.revision.to_le_bytes());
         fold(&self.devices.ports.to_le_bytes());

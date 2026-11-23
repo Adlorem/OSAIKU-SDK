@@ -267,7 +267,7 @@ impl Snapshot {
                 .ok_or(Refusal::Bounds)?;
             if e.id == 0
                 || e.label_offset != labels
-                || e.kind > crate::Kind::TextArea as u32
+                || e.kind > crate::Kind::Switch as u32
                 || e.role > crate::Role::Slider as u32
                 || e.state & !crate::surface::STATE_MASK != 0
                 || e.state & HIDDEN != 0

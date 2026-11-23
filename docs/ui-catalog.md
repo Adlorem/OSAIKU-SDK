@@ -33,6 +33,7 @@ Document wire major: 11. Catalog versions are exact-match.
 | `ui-chart` | Chart | Chart | false |
 | `ui-value-bar` | ValueBar | Meter | false |
 | `ui-slider` | Slider | Slider | true |
+| `ui-switch` | Switch | Button | true |
 | `ui-tooltip` | Tooltip | Button | true |
 | `ui-separator` | Separator | Separator | false |
 | `ui-icon` | Icon | Presentation | false |

@@ -26,6 +26,7 @@ pub mod report;
 mod shape;
 pub mod slider;
 pub mod surface;
+pub mod switch;
 pub mod text_area;
 pub mod text_atlas;
 pub mod text_model;
@@ -105,6 +106,10 @@ pub enum Kind {
     /// `ui-text-area`: the lines of a multi-line text the application shows,
     /// with its caret and selection (see `text_area`).
     TextArea = 16,
+    /// `ui-switch`: an on/off switch, on while the node is selected
+    /// (`bind:selected`). With an action a press activates it like a button;
+    /// without one it only shows the state, e.g. inside a menu entry.
+    Switch = 17,
 }
 impl Kind {
     pub fn from_byte(value: u8) -> Option<Self> {
@@ -126,6 +131,7 @@ impl Kind {
             14 => Self::Slider,
             15 => Self::Tooltip,
             16 => Self::TextArea,
+            17 => Self::Switch,
             _ => return None,
         })
     }
@@ -194,7 +200,7 @@ impl Role {
             Kind::Container | Kind::Popup => matches!(self, Self::Group | Self::Navigation),
             Kind::VirtualList | Kind::Template => self == Self::Group,
             Kind::Text => matches!(self, Self::Text | Self::Heading),
-            Kind::Button | Kind::Tooltip => self == Self::Button,
+            Kind::Button | Kind::Tooltip | Kind::Switch => self == Self::Button,
             Kind::Table => self == Self::Table,
             Kind::Row => self == Self::Row,
             Kind::Cell => matches!(self, Self::Cell | Self::ColumnHeader),
@@ -379,6 +385,9 @@ pub struct Node {
     /// Requested vertical offset, clamped by the shared layout; the anchor's
     /// y for Kind::Popup, which never scrolls.
     pub scroll_y: u32,
+    /// `Kind::TextArea` only: its horizontal scrollbar (`text_area::encode_horizontal_scroll`).
+    /// Carried on the wire for text areas alone; zero on every other node.
+    pub scroll_x: u8,
     /// Seven nonempty disabled/selected/focused combinations, wide then narrow.
     /// NO_STATE_STYLE reuses the corresponding base style.
     pub state_styles: [u8; 14],
@@ -417,6 +426,7 @@ impl Node {
         narrow: Style::DEFAULT,
         breakpoint: 0,
         scroll_y: 0,
+        scroll_x: 0,
         state_styles: [NO_STATE_STYLE; 14],
         inherited: [0; 16],
     };
@@ -567,6 +577,9 @@ impl Document {
             )
             .map_err(|_| Error::Text)?;
             if n.kind == Kind::TextArea && !text_area::valid(text, n.scroll_y, n.value) {
+                return Err(Error::Value);
+            }
+            if n.kind != Kind::TextArea && n.scroll_x != 0 {
                 return Err(Error::Value);
             }
             if n.series_len > 60
