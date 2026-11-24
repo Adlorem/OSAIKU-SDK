@@ -341,7 +341,7 @@ impl Publication {
             }
             let label =
                 &self.labels[e.label_offset as usize..(e.label_offset + e.label_len) as usize];
-            if label != view.text_of(i).as_bytes() {
+            if label != crate::paint::semantic_label(n.kind, view.text_of(i)).as_bytes() {
                 return Err(Refusal::Identity);
             }
             let style = view.resolved_style(i, self.extent.width);

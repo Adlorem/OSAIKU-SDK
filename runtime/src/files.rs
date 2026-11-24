@@ -1,5 +1,6 @@
 //! Named-file requests carry identities and bounded bytes, never disk addresses.
 //! The storage service derives authority from the caller and its live window.
+pub mod disk_info;
 pub const VERSION: u64 = 1;
 pub const NAME_BYTES: usize = 64;
 pub const CONTENT_BYTES: usize = 256;
@@ -32,6 +33,8 @@ pub mod operation {
     /// Lifecycle host only: grant READ of an exact file to the target window.
     /// Reply.content contains an opaque picker token (8 bytes), never file data.
     pub const OPEN_SCOPE: u64 = 23;
+    pub const DISK_SPACE: u64 = 24;
+    pub const DISK_HEALTH: u64 = 25;
 }
 pub mod status {
     pub const OK: u64 = 0;
@@ -117,11 +120,25 @@ impl FileRequest {
             || self.sequence == 0
             || !(private_operation(self.operation)
                 || broker_operation(self.operation)
-                || report_operation(self.operation))
+                || report_operation(self.operation)
+                || disk_info_operation(self.operation))
             || self.name_len > NAME_BYTES as u64
             || self.content_len > CONTENT_BYTES as u64
         {
             return false;
+        }
+        if disk_info_operation(self.operation) {
+            return self.window_id != 0
+                && self.window_generation != 0
+                && self.object == 0
+                && self.parent == ROOT
+                && self.expected_version == 0
+                && self.catalog_revision == 0
+                && self.mount_generation == 0
+                && self.name_len == 0
+                && self.content_len == 0
+                && self.name == [0; NAME_BYTES]
+                && self.content == [0; CONTENT_BYTES];
         }
         if report_operation(self.operation) {
             return self.name_len == 0
@@ -262,6 +279,9 @@ impl FileRequest {
 }
 
 /// Metadata only: no content, mutations, mount changes or raw device access.
+pub const fn disk_info_operation(op: u64) -> bool {
+    matches!(op, operation::DISK_SPACE | operation::DISK_HEALTH)
+}
 pub const fn metadata_operation(op: u64) -> bool {
     matches!(op, operation::LIST_V2 | operation::STAT_V2)
 }

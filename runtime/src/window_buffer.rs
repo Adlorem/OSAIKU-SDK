@@ -10,6 +10,8 @@ pub mod op {
     pub const WRITE: u64 = 2;
     pub const SEAL: u64 = 3;
     pub const RELEASE: u64 = 4;
+    /// Process-private RW/NX storage. It cannot be sealed or exported.
+    pub const CREATE_PRIVATE: u64 = 5;
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -42,11 +44,14 @@ pub struct Buffer {
 }
 impl Buffer {
     pub fn create(bytes: usize) -> Result<Self, isize> {
-        if bytes == 0 || bytes as u64 > MAX_BYTES {
+        Self::allocate(bytes, op::CREATE, MAX_BYTES)
+    }
+    fn allocate(bytes: usize, operation: u64, limit: u64) -> Result<Self, isize> {
+        if bytes == 0 || bytes as u64 > limit {
             return Err(-1);
         }
         let r = exchange(Message {
-            operation: op::CREATE,
+            operation,
             bytes: bytes as u64,
             ..Message::default()
         })?;
@@ -138,6 +143,29 @@ impl Buffer {
                 Ok(())
             }
             _ => Err(self),
+        }
+    }
+}
+/// Zeroed private process memory, charged to the package's aggregate memory
+/// budget. The mapping is unique and is released when its owner is dropped.
+pub struct PrivateBytes(Option<Buffer>);
+
+impl PrivateBytes {
+    pub fn new(bytes: usize) -> Result<Self, isize> {
+        Buffer::allocate(bytes, op::CREATE_PRIVATE, END - START).map(|b| Self(Some(b)))
+    }
+    pub fn bytes(&self) -> &[u8] {
+        self.0.as_ref().unwrap().bytes()
+    }
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut().unwrap().bytes_mut()
+    }
+}
+impl Drop for PrivateBytes {
+    fn drop(&mut self) {
+        if let Some(b) = self.0.take() {
+            // On a failed release the kernel retains the charge until teardown.
+            let _ = b.release();
         }
     }
 }

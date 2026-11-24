@@ -21,6 +21,10 @@ pub const READ_GATHER: u64 = 7;
 /// Write with NVMe FUA. Only this request's bytes become durable; preceding
 /// ordinary writes still require their own flush barrier.
 pub const WRITE_FUA: u64 = 8;
+/// Fixed controller-wide SMART / Health Information log and one availability byte.
+pub const SMART: u64 = 9;
+pub const SMART_LOG_BYTES: usize = 512;
+pub const SMART_REPLY_BYTES: usize = SMART_LOG_BYTES + 1;
 /// `IO` sub-operation: copy up to `SUBMIT_ENTRIES` 64-byte entries into their
 /// ring slots, publish them and write the queue's tail doorbell. It confers
 /// nothing beyond the existing arena-write, fence and doorbell-write steps.
@@ -244,6 +248,11 @@ impl Request {
             return Err(Error::InvalidId);
         }
         match r.operation {
+            SMART => {
+                if r.lba != 0 || r.bytes as usize != SMART_REPLY_BYTES || r.buffer == 0 {
+                    return Err(Error::Range);
+                }
+            }
             IDENTIFY => {
                 if r.lba > 3 || r.bytes != 4096 || r.buffer == 0 {
                     return Err(Error::Range);

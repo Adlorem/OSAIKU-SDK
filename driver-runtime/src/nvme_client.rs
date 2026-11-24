@@ -246,6 +246,9 @@ impl<T: Transport> Client<T> {
     pub fn flush(&mut self) -> Result<(), Error> {
         self.send(wire::FLUSH, 0, &[], &mut [])
     }
+    pub fn smart(&mut self, out: &mut [u8; wire::SMART_REPLY_BYTES]) -> Result<(), Error> {
+        self.send(wire::SMART, 0, &[], out)
+    }
     pub fn identify(&mut self, cns: u8, out: &mut [u8; 4096]) -> Result<(), Error> {
         if cns > 3 {
             return Err(Error::InvalidRange);

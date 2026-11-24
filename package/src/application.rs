@@ -36,7 +36,9 @@ pub mod permission {
     /// Opt-in rendering through an isolated package renderer. This grants no
     /// display, MMIO or DMA authority; the host must approve the signed request.
     pub const GPU_RENDER: u64 = 16;
-    pub const KNOWN: u64 = 31;
+    /// Aggregate volume usage and NVMe identification/health; no file or device access.
+    pub const DISK_INFO_READ: u64 = 32;
+    pub const KNOWN: u64 = 63;
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -372,8 +372,16 @@ owner until exact process retirement.
 
 ## Protected file picker (A5)
 
+Window protocol 1.1 also provides `window_buffer::PrivateBytes` for
+process-owned writable, non-executable memory. Creation is fallible and
+charged to the package memory budget. Dropping the owner releases its pages.
+Only the creating process can access a private mapping.
+
 `osaiku_runtime::picker`, syscall 398, implements compatibility protocol
-`SELECTED_FILES` (3), version 1.0. OPEN names the caller's exact live window,
+`SELECTED_FILES` (3). Version 1.1 adds SIZE (11). A read scope can query the
+selected revision's length before allocating. The successful reply carries
+eight little-endian bytes. Each subsequent READ checks that revision.
+OPEN names the caller's exact live window,
 incarnation and requested selected-file READ/WRITE rights. Use a new nonzero
 sequence for each new chooser; repeating the same OPEN returns the same token.
 STATUS polls that token. The user selects **Wybierz plik dla aplikacji** in File
@@ -403,14 +411,16 @@ it never overwrites a collision or first exposes an empty placeholder. Success
 turns this scope into a version-bound file WRITE scope. A refused, stale or
 uncertain operation requires an explicit user retry; preserve the draft.
 
-`picker::OpenScope` is a 40-byte authenticated host message delivering a READ
-scope for a file opened in Files. Accept it only through `hosted::host_message`,
+`picker::OpenScope` is a 40-byte authenticated host message for the exact file
+opened in Files. The scope permits reading. For a native file it also permits
+editing when the recipient has selected-file WRITE permission.
+Accept it only through `hosted::host_message`,
 for the exact window/incarnation and a fresh sequence, while the document can
 safely accept replacement. Return its correlated 24-byte acknowledgement. The
-token still has to pass STATUS/READ; receiving bytes does not confer authority.
-Release it with CANCEL after the read. The migrated Document uses this path,
-public picker transactions, and app-owned text/save state. Its current text
-limit is 256 UTF-8 bytes; overlong input is refused without truncation.
+kernel checks the scope and its rights on each read or replacement. An editor
+can retain the token with the open document for version-checked saves. Release
+it with CANCEL when the document closes or moves to another file. A viewer can
+release it immediately after reading.
 
 ## Protected browser client and metadata
 
