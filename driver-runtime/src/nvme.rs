@@ -509,7 +509,7 @@ impl Queue {
             return Ok((
                 command,
                 Err(match (kind, code) {
-                    (0, 1) => Error::Unsupported,
+                    (0, 1) | (1, 0x09) => Error::Unsupported,
                     (0, 2) | (0, 0x80) => Error::InvalidRange,
                     (0, 0x81) => Error::NoSpace,
                     (0, 0x82) => Error::NotReady,

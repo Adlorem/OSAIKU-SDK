@@ -372,8 +372,16 @@ owner until exact process retirement.
 
 ## Protected file picker (A5)
 
+Window protocol 1.1 also provides `window_buffer::PrivateBytes` for
+process-owned writable, non-executable memory. Creation is fallible and
+charged to the package memory budget. Dropping the owner releases its pages.
+Only the creating process can access a private mapping.
+
 `osaiku_runtime::picker`, syscall 398, implements compatibility protocol
-`SELECTED_FILES` (3), version 1.0. OPEN names the caller's exact live window,
+`SELECTED_FILES` (3). Version 1.1 adds SIZE (11). A read scope can query the
+selected revision's length before allocating. The successful reply carries
+eight little-endian bytes. Each subsequent READ checks that revision.
+OPEN names the caller's exact live window,
 incarnation and requested selected-file READ/WRITE rights. Use a new nonzero
 sequence for each new chooser; repeating the same OPEN returns the same token.
 STATUS polls that token. The user selects **Wybierz plik dla aplikacji** in File

@@ -346,7 +346,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 parent: (n.parent != NONE).then(|| self.view.nodes[n.parent as usize].id),
                 kind: n.kind,
                 role: n.role,
-                text: label(n.kind, self.text_of(i)),
+                text: semantic_label(n.kind, self.text_of(i)),
                 value: (n.value <= 10000 && n.kind != Kind::TextArea).then_some(n.value),
                 series: &self.view.points
                     [n.series_start as usize..(n.series_start + n.series_len) as usize],
@@ -1026,7 +1026,7 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
 
 /// A semantic label: an area's shown lines are cut to one leaf's bound on a
 /// character boundary, so publications keep their per-element limit.
-fn label(kind: Kind, text: &str) -> &str {
+pub(crate) fn semantic_label(kind: Kind, text: &str) -> &str {
     if kind != Kind::TextArea || text.len() <= MAX_LEAF_TEXT {
         return text;
     }

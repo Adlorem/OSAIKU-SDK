@@ -31,6 +31,10 @@ impl Decoder {
             match code {
                 0x1d => 0xe4,
                 0x38 => 0xe6,
+                0x5b => 0xe3,
+                0x5c => 0xe7,
+                // E0 2A and E0 AA are the synthetic shifts around Print Screen.
+                0x37 => 0x46,
                 0x49 => 0x4b,
                 0x51 => 0x4e,
                 0x4b => 0x50,

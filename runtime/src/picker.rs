@@ -24,6 +24,9 @@ pub const WRITE: u64 = 9;
 /// The chosen file's name (at most 64 bytes) for a live scope, so an editor
 /// can title its tab. A pending choice answers 1; it names no path.
 pub const NAME: u64 = 10;
+/// Size of the selected file revision. A successful reply holds its u64
+/// byte length in little-endian order and requires the same scope as READ.
+pub const SIZE: u64 = 11;
 pub const CAPACITY: usize = 4096;
 pub const MAX_REPLACE: u64 = 16 * 1024 * 1024;
 /// Authenticated host delivery of the selected file. A native editor with
@@ -142,7 +145,7 @@ impl Request {
                         && self.length == 0
                         && self.bytes == [0; CAPACITY]
                 }
-                STATUS | CANCEL | NAME => {
+                STATUS | CANCEL | NAME | SIZE => {
                     self.token != 0
                         && self.rights == 0
                         && self.offset == 0
@@ -210,7 +213,8 @@ impl Reply {
             && (self.status == 0 || self.length == 0)
             && ((r.operation == READ && self.length <= r.length)
                 || (r.operation == NAME && self.length <= 64)
-                || self.length == 0)
+                || (r.operation == SIZE && self.status == 0 && self.length == 8)
+                || (self.length == 0 && (r.operation != SIZE || self.status != 0)))
     }
 }
 /// Borrowed wire workspace for small-stack native applications. No payload
