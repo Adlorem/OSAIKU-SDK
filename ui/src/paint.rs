@@ -51,6 +51,18 @@ pub trait Painter {
     fn image(&mut self, at: Rect, image: &'static crate::image::Image, clip: Rect) {
         crate::image::runs(self, at, image, clip);
     }
+    /// A pre-rasterized mask (a `tint-` image set) at `at`: each pixel's alpha,
+    /// scaled by `alpha`, in `color`. Same contract as `image`.
+    fn tinted_image(
+        &mut self,
+        at: Rect,
+        image: &'static crate::image::Image,
+        color: u32,
+        alpha: u8,
+        clip: Rect,
+    ) {
+        crate::image::tinted_runs(self, at, image, color, alpha, clip);
+    }
 }
 
 /// A background, marker or bar: square corners keep the single rectangle
@@ -562,11 +574,11 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 Kind::TextArea => self.text_area(painter, i, r, s, p.clip),
                 Kind::Separator => painter.fill(Rect { height: 1, ..r }, color, p.clip),
                 Kind::Icon => {
-                    let image = self
-                        .image_named(self.text_of(i))
-                        .and_then(|set| set.fit(r.width, r.height));
-                    if let Some(image) = image {
-                        // Centred in the content box, at its built size.
+                    let set = self.image_named(self.text_of(i));
+                    let image = set.and_then(|set| set.fit(r.width, r.height));
+                    if let (Some(set), Some(image)) = (set, image) {
+                        // Centred in the content box, at its built size; a
+                        // `tint-` set is a mask drawn in the element's colour.
                         let (w, h) = (u32::from(image.width), u32::from(image.height));
                         let at = Rect {
                             x: r.x + ((r.width - w) / 2) as i32,
@@ -574,7 +586,11 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                             width: w,
                             height: h,
                         };
-                        painter.image(at, image, p.clip);
+                        if set.name.starts_with(crate::image::TINT_PREFIX) {
+                            painter.tinted_image(at, image, color, 255, p.clip);
+                        } else {
+                            painter.image(at, image, p.clip);
+                        }
                     } else if let Some(mask) = self
                         .text_of(i)
                         .strip_prefix("mask8:")
@@ -722,6 +738,21 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                         let accent = self.color(theme::ACCENT, 0) & 0x00ff_ffff;
                         painter.stroke_rounded(ring, ring.height / 2, [2; 4], accent, 160, p.clip);
                     }
+                }
+                Kind::Ring => {
+                    // The track in the theme's track colour, then the arc in
+                    // the element's colour; children paint over the hole.
+                    let track = self.theme.color(theme::TRACK, 0);
+                    let dim = if p.disabled { 115 } else { 255 };
+                    crate::ring::paint(
+                        painter,
+                        r,
+                        n.value,
+                        (track & 0x00ff_ffff, (track >> 24) as u8),
+                        color,
+                        dim,
+                        p.clip,
+                    );
                 }
                 Kind::Chart => self.chart(painter, n, r, color, decoration.fill_opacity, p.clip),
                 _ => {}

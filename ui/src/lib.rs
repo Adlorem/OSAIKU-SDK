@@ -23,6 +23,7 @@ pub mod notice;
 pub mod paint;
 pub mod raster;
 pub mod report;
+pub mod ring;
 mod shape;
 pub mod slider;
 pub mod surface;
@@ -110,6 +111,10 @@ pub enum Kind {
     /// (`bind:selected`). With an action a press activates it like a button;
     /// without one it only shows the state, e.g. inside a menu entry.
     Switch = 17,
+    /// `ui-ring`: a percent (`bind:value`) as an arc round a circular track,
+    /// clockwise from the top. A container: its children (a figure and its
+    /// caption, say) sit inside the ring.
+    Ring = 18,
 }
 impl Kind {
     pub fn from_byte(value: u8) -> Option<Self> {
@@ -132,6 +137,7 @@ impl Kind {
             15 => Self::Tooltip,
             16 => Self::TextArea,
             17 => Self::Switch,
+            18 => Self::Ring,
             _ => return None,
         })
     }
@@ -151,6 +157,7 @@ impl Kind {
                 | Self::VirtualList
                 | Self::Template
                 | Self::Popup
+                | Self::Ring
         )
     }
 }
@@ -205,7 +212,7 @@ impl Role {
             Kind::Row => self == Self::Row,
             Kind::Cell => matches!(self, Self::Cell | Self::ColumnHeader),
             Kind::Chart => self == Self::Chart,
-            Kind::ValueBar => self == Self::Meter,
+            Kind::ValueBar | Kind::Ring => self == Self::Meter,
             Kind::Separator => self == Self::Separator,
             Kind::Icon => self == Self::Presentation,
             Kind::TextInput | Kind::TextArea => self == Self::TextBox,
