@@ -74,7 +74,6 @@ pub const SLOTS: usize = 20;
 /// The window controls sit flush against each other from the right edge:
 /// minimize, maximize, close. Each is `Metrics::control` wide. A frame too
 /// narrow for all of them keeps close alone.
-pub const CONTROLS: u32 = 3;
 pub fn slots(metrics: Metrics, width: u32, height: u32) -> Option<[HostSlot; SLOTS]> {
     let title = metrics.title_height;
     let control = metrics.control;
