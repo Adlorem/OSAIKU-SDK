@@ -32,6 +32,7 @@ Document wire major: 11. Catalog versions are exact-match.
 | `template` | Template | Group | false |
 | `ui-chart` | Chart | Chart | false |
 | `ui-value-bar` | ValueBar | Meter | false |
+| `ui-ring` | Ring | Meter | false |
 | `ui-slider` | Slider | Slider | true |
 | `ui-switch` | Switch | Button | true |
 | `ui-tooltip` | Tooltip | Button | true |
@@ -44,7 +45,7 @@ Document wire major: 11. Catalog versions are exact-match.
 | Attribute | Type | Targets |
 | --- | --- | --- |
 | `bind:text` | text | Leaves |
-| `bind:value` | percent | ui-value-bar, ui-slider |
+| `bind:value` | percent | ui-value-bar, ui-slider, ui-ring |
 | `bind:series` | series | ui-chart |
 | `bind:hidden` | bool | Any node |
 | `bind:disabled` | bool | Any node |

@@ -36,6 +36,7 @@ comments between rules are supported.
 | ui-value-bar | Percent meter; unavailable is distinct from zero |
 | ui-slider | Percent control; a press or drag sends `VALUE`, `bind:value` places the thumb |
 | ui-switch | On/off switch: on while selected (`bind:selected`); with an action a press activates it |
+| ui-ring | Percent as an arc round a circular track; a container whose children sit in the hole |
 | ui-separator, ui-icon | Separator; decorative square mark, or a host image with `src` |
 | ui-popup-menu | Menu above the document at an anchor point (context menu) |
 
@@ -47,7 +48,7 @@ true by presence, including `disabled="false"`; bindings supply dynamic values.
 | Binding | Rust value | Targets |
 | --- | --- | --- |
 | bind:text | Value::Text | Leaves |
-| bind:value | Value::Percent(Option<u16>) | ui-value-bar, ui-slider |
+| bind:value | Value::Percent(Option<u16>) | ui-value-bar, ui-slider, ui-ring |
 | bind:series | Value::Series | ui-chart |
 | bind:hidden / disabled / selected | Value::Bool | Any node |
 
@@ -86,6 +87,17 @@ focused one has an accent ring. With an `action` a press or Enter sends
 `bind:selected`. Without an action it only shows a state: inside a menu entry
 (`ui-list-item` with the action) a press on the switch activates the entry.
 `switch::geometry` places the track and both knob positions.
+
+Installable applications that publish `ui-ring` require WINDOW protocol 1.2
+or later in the 1.x series. WINDOW 1.1 hosts cannot decode wire kind 18.
+
+`ui-ring` draws the largest circle that fits its content box (120x120 by
+default), a tenth of its diameter thick: the whole circle in the `track`
+token, then `bind:value` as an arc clockwise from the top in the element's
+`color` (the theme `accent` by default, faded while disabled). An unavailable
+value shows the track alone. The ring is a row that centres its children
+vertically, so a column inside it (a figure over a caption, with
+`text-align: center`) sits in the hole. `ring::geometry` places the circle.
 
 `ui-text-input` renders bounded literal text and participates in focus, clipping
 and scrolling. A pointer press sends `FOCUS` without executing the field's
@@ -431,6 +443,14 @@ chevron) keeps its contrast on paper without the application knowing the
 theme: the document and the kernel's text verification name only `NAME`.
 An application that rasterizes its own surface passes its own images to the
 runtime (`HostedRaster::publish_with_images`).
+
+A set whose name starts with `tint-` (`image::TINT_PREFIX`) is a mask: only
+its alpha counts, drawn in the icon's CSS `color` through
+`Painter::tinted_image` (default `image::tinted_runs`, one `fill_alpha` per
+run of equal alpha). One table then follows every theme and accent, and the
+application colours each icon with a rule such as
+`.badge-icon { color: theme(accent); }`. `generate-icons.py` keeps only
+the coverage of such sources.
 
 ## Popup menus
 

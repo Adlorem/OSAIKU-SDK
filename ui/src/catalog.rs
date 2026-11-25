@@ -66,6 +66,7 @@ components![
     ("template", Template, Group),
     ("ui-chart", Chart, Chart),
     ("ui-value-bar", ValueBar, Meter),
+    ("ui-ring", Ring, Meter),
     ("ui-slider", Slider, Slider),
     ("ui-switch", Switch, Button),
     ("ui-tooltip", Tooltip, Button),
@@ -104,7 +105,7 @@ impl Binding {
         }
         match self.data_type {
             DataType::Text => !kind.container(),
-            DataType::Percent => matches!(kind, Kind::ValueBar | Kind::Slider),
+            DataType::Percent => matches!(kind, Kind::ValueBar | Kind::Slider | Kind::Ring),
             DataType::Series => kind == Kind::Chart,
             DataType::Bool => true,
         }
@@ -208,7 +209,7 @@ pub fn write_reference(out: &mut impl Write) -> fmt::Result {
     for b in BINDINGS {
         let targets = match b.data_type {
             DataType::Text => "Leaves",
-            DataType::Percent => "ui-value-bar, ui-slider",
+            DataType::Percent => "ui-value-bar, ui-slider, ui-ring",
             DataType::Series => "ui-chart",
             DataType::Bool if b.slot == 5 => "Any node except ui-tooltip (SDK-owned)",
             DataType::Bool => "Any node",
