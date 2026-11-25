@@ -5,5 +5,8 @@ button:disabled { color: $MUTED; background-color: $TITLE; }
 #content-slot { background-color: $SURFACE; }
 #title { padding: 0px; vertical-align: middle; overflow: hidden; }
 #close { padding: 0px; font-size: 28px; text-align: center; vertical-align: middle; background-color: #00000000; }
+#minimize { padding: 0px; font-size: 20px; text-align: center; vertical-align: middle; background-color: #00000000; }
+#maximize { padding: 0px; background-color: #00000000; }
+#maximize-mark { padding: 0px; background-color: #00000000; border-width: 2px; border-color: $TEXT; border-radius: 1px; }
 #window-icon { padding: 0px; font-size: 12px; text-align: center; vertical-align: middle; color: theme(accent-fill); background-color: #00000000; }
 .resize { padding: 0px; background-color: #00000000; }

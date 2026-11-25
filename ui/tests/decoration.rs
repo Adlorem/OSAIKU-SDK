@@ -108,7 +108,14 @@ fn standalone_frame_template_binds_literal_metadata_and_the_painted_controls() {
                 .find(|n| n.id == symbol("content-slot"))
                 .unwrap();
             assert_eq!((content.bounds.y, content.bounds.height), (28, 272));
-            for action in ["close", "drag", "resize-left", "resize-bottom"] {
+            for action in [
+                "close",
+                "maximize",
+                "minimize",
+                "drag",
+                "resize-left",
+                "resize-bottom",
+            ] {
                 let n = scene.semantics().find(|n| n.id == symbol(action)).unwrap();
                 let r = n.visible_bounds;
                 assert_eq!(
@@ -118,6 +125,53 @@ fn standalone_frame_template_binds_literal_metadata_and_the_painted_controls() {
             }
         }
     }
+}
+
+#[test]
+fn window_controls_sit_flush_from_the_right_edge_and_leave_the_title_room() {
+    use osaiku_ui::symbol;
+    let m = metrics();
+    let slots = frame::slots(m, 512, 300).unwrap();
+    assert_eq!(slots.len(), frame::SLOTS);
+    let find = |name: &str| slots.iter().find(|s| s.id == symbol(name)).unwrap().bounds;
+    let close = find("close");
+    let maximize = find("maximize");
+    let minimize = find("minimize");
+    let mark = find("maximize-mark");
+    let title = find("title");
+    assert_eq!(close.right(), 512 - m.inset.width as i32);
+    assert_eq!(maximize.right(), close.x);
+    assert_eq!(minimize.right(), maximize.x);
+    for control in [close, maximize, minimize] {
+        assert_eq!((control.y, control.width, control.height), (8, 32, 16));
+    }
+    // The mark is a square inside the maximize control, centred in it.
+    assert_eq!(mark.width, mark.height);
+    assert!(mark.x > maximize.x && mark.right() < maximize.right());
+    assert!(mark.y > maximize.y && mark.y + mark.height as i32 <= maximize.y + 16);
+    // The title ends where the controls begin; it never runs under them.
+    assert_eq!(title.right(), minimize.x);
+    // A frame too narrow for all three controls keeps close alone: the other
+    // two become empty rectangles, never drawn over the badge or past the
+    // left edge. Too narrow for close as well, it has no layout at all.
+    let narrow = m.inset.width + m.control.width * frame::CONTROLS - 1;
+    let slots = frame::slots(m, narrow, 300).unwrap();
+    let find = |name: &str| slots.iter().find(|s| s.id == symbol(name)).unwrap().bounds;
+    assert_eq!(find("close").right(), narrow as i32 - m.inset.width as i32);
+    for name in ["minimize", "maximize", "maximize-mark"] {
+        assert_eq!(find(name).width * find(name).height, 0, "{name}");
+    }
+    assert_eq!(find("title").right(), find("close").x);
+    let wide = frame::slots(m, narrow + 1, 300).unwrap();
+    assert_eq!(
+        wide.iter()
+            .find(|s| s.id == symbol("minimize"))
+            .unwrap()
+            .bounds
+            .x,
+        0
+    );
+    assert!(frame::slots(m, m.inset.width + m.control.width - 1, 300).is_none());
 }
 
 #[test]
