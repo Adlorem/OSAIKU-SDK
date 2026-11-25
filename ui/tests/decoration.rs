@@ -108,7 +108,14 @@ fn standalone_frame_template_binds_literal_metadata_and_the_painted_controls() {
                 .find(|n| n.id == symbol("content-slot"))
                 .unwrap();
             assert_eq!((content.bounds.y, content.bounds.height), (28, 272));
-            for action in ["close", "drag", "resize-left", "resize-bottom"] {
+            for action in [
+                "close",
+                "maximize",
+                "minimize",
+                "drag",
+                "resize-left",
+                "resize-bottom",
+            ] {
                 let n = scene.semantics().find(|n| n.id == symbol(action)).unwrap();
                 let r = n.visible_bounds;
                 assert_eq!(

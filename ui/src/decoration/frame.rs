@@ -68,7 +68,13 @@ pub fn content_bounds(title: u32, width: u32, height: u32) -> Option<Bounds> {
     }
     Some(Bounds::new(0, title, width, height.checked_sub(title)?))
 }
-pub fn slots(metrics: Metrics, width: u32, height: u32) -> Option<[HostSlot; 17]> {
+/// How many host slots a frame composes: content, drag, title, close, badge,
+/// the twelve resize regions, then minimize, maximize and maximize's mark.
+pub const SLOTS: usize = 20;
+/// The window controls sit flush against each other from the right edge:
+/// minimize, maximize, close. Each is `Metrics::control` wide. A frame too
+/// narrow for all of them keeps close alone.
+pub fn slots(metrics: Metrics, width: u32, height: u32) -> Option<[HostSlot; SLOTS]> {
     let title = metrics.title_height;
     let control = metrics.control;
     let inset = metrics.inset;
@@ -85,11 +91,26 @@ pub fn slots(metrics: Metrics, width: u32, height: u32) -> Option<[HostSlot; 17]
         return None;
     }
     let close_x = width.checked_sub(inset.width.checked_add(control.width)?)?;
+    // Minimize and maximize only when all three fit; a narrower frame keeps
+    // close alone, and their slots are empty rectangles at close's edge.
+    let pair = control.width.checked_mul(2)?;
+    let all = close_x >= pair;
+    let maximize_x = if all {
+        close_x - control.width
+    } else {
+        close_x
+    };
+    let minimize_x = if all { close_x - pair } else { close_x };
+    let (pair_width, pair_height) = if all {
+        (control.width, control.height)
+    } else {
+        (0, 0)
+    };
     // A square application badge centred in the title bar, then the title.
     let icon = (title * 5 / 8).clamp(8, 40).min(title);
     let icon_x = (title - icon) / 2 + 2;
-    let title_x = (icon_x + icon + icon / 2).min(close_x);
-    let mut slots = [slot("content-slot", 0, 0, 0, 0); 17];
+    let title_x = (icon_x + icon + icon / 2).min(minimize_x);
+    let mut slots = [slot("content-slot", 0, 0, 0, 0); SLOTS];
     let content = content_bounds(title, width, height)?;
     slots[0] = slot(
         "content-slot",
@@ -99,7 +120,7 @@ pub fn slots(metrics: Metrics, width: u32, height: u32) -> Option<[HostSlot; 17]
         content.height,
     );
     slots[1] = slot("drag", 0, 0, width, title);
-    slots[2] = slot("title", title_x, 0, close_x.checked_sub(title_x)?, title);
+    slots[2] = slot("title", title_x, 0, minimize_x.checked_sub(title_x)?, title);
     slots[3] = slot(
         "close",
         close_x,
@@ -114,12 +135,39 @@ pub fn slots(metrics: Metrics, width: u32, height: u32) -> Option<[HostSlot; 17]
         icon.min(width.saturating_sub(icon_x)),
         icon,
     );
-    for (out, (region, _)) in slots[5..]
+    for (out, (region, _)) in slots[5..17]
         .iter_mut()
         .zip(resize_regions(width, height, title)?)
     {
         *out = region;
     }
+    slots[17] = slot(
+        "minimize",
+        minimize_x,
+        inset.height,
+        pair_width,
+        pair_height,
+    );
+    slots[18] = slot(
+        "maximize",
+        maximize_x,
+        inset.height,
+        pair_width,
+        pair_height,
+    );
+    // An outlined square, as tall as the minimize dash is wide, centred in
+    // the maximize control. Drawn by its border, so no glyph is needed.
+    let mark = (pair_height * 9 / 20)
+        .max(6)
+        .min(pair_width)
+        .min(pair_height);
+    slots[19] = slot(
+        "maximize-mark",
+        maximize_x + (pair_width - mark) / 2,
+        inset.height + (pair_height - mark) / 2,
+        mark,
+        mark,
+    );
     Some(slots)
 }
 /// Resize regions are composition slots, shared with the system's size policy.

@@ -16,8 +16,14 @@ geometry used for hit routing; paint/semantics use the resulting Scene.
 The template draws the title bar in `$TITLE` and the content in `$SURFACE`: a square application
 badge (accent colour, rounded, centred in the bar and scaled with it) showing
 the application's icon at the largest built size that fits, the title
-beside it and a borderless `×` close control. OSAIKU's metrics make the close
-target 8x5 logical units, one unit inside the bar's top and right edges.
+beside it and three borderless controls flush against each other at the right
+end: minimize (`–`), maximize (a square outline drawn by the `maximize-mark`
+border, so no glyph is needed) and `×` close. Each control is one
+`Metrics::control` wide, and the title ends where
+minimize begins. A frame too narrow for all three keeps close alone (the other
+two slots are empty rectangles); one too narrow even for close has no layout. OSAIKU's metrics make each control 8x5 logical units; close sits one
+unit inside the bar's top and right edges. The `minimize`, `maximize` and
+`close` actions only name the press: the host decides what they do.
 Coordinates never grant permission to move, close or resize another window.
 
 OSAIKU's current effect sequence is: retain private opaque foreground; apply the
