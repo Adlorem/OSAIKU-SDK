@@ -18,6 +18,18 @@ pub const CONFLICT: u64 = 5;
 pub const CONFLICT_NO_REPLACE: u64 = 6;
 /// The application file request a Files window serves (`Picker`).
 pub const PICKER: u64 = 60;
+/// Return the usual browser snapshot plus display metadata from the same directory page.
+pub const SNAPSHOT_WITH_METADATA: u64 = 62;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EntryMetadata {
+    pub bytes: u32,
+    /// FAT local calendar dates, zero when the directory entry has no date.
+    pub created: u16,
+    pub modified: u16,
+}
+pub type PageMetadata = [EntryMetadata; crate::file_manager::ROWS];
 
 pub mod picker_mode {
     pub const NONE: u64 = 0;

@@ -973,6 +973,17 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
             height: r.height - 22,
         };
         let clip = clip.intersect(r);
+        // Labels are 12 px tall. A graph too short for all five to stand
+        // apart keeps every other one (100%, 50%, 0%), or only the ends;
+        // every grid line is still drawn.
+        let spacing = (graph.height - 1) / 4;
+        let every = if spacing >= 12 {
+            1
+        } else if spacing * 2 >= 12 {
+            2
+        } else {
+            4
+        };
         for (tick, label) in ["100%", "75%", "50%", "25%", "0%"].iter().enumerate() {
             let y = graph.y + (tick as u32 * (graph.height - 1) / 4) as i32;
             painter.line(
@@ -981,6 +992,9 @@ impl<'a, L: AsRef<Layout>> Scene<'a, L> {
                 self.theme.color(theme::GRID, 0) & 0x00ff_ffff,
                 clip,
             );
+            if tick % every != 0 {
+                continue;
+            }
             painter.text(
                 Rect {
                     x: r.x,

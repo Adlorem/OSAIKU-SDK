@@ -126,6 +126,21 @@ pub fn file_browser_snapshot(
         view as *mut _ as u64,
     ) as isize
 }
+pub fn file_browser_snapshot_with_metadata(
+    window: u64,
+    generation: u64,
+    view: &mut crate::file_manager::View,
+    metadata: &mut crate::file_browser::PageMetadata,
+) -> isize {
+    syscall5(
+        crate::file_browser::SYSCALL,
+        crate::file_browser::SNAPSHOT_WITH_METADATA,
+        window,
+        generation,
+        view as *mut _ as u64,
+        metadata as *mut _ as u64,
+    ) as isize
+}
 pub fn file_browser_devices(
     window: u64,
     generation: u64,
