@@ -78,7 +78,7 @@ impl Theme {
     }
 }
 
-pub const TOKEN_COUNT: u8 = 15;
+pub const TOKEN_COUNT: u8 = 16;
 pub const TEXT: u8 = 1;
 pub const SURFACE: u8 = 3;
 pub const CARD: u8 = 4;
@@ -90,6 +90,10 @@ pub const ACCENT: u8 = 8;
 pub const GRID: u8 = 14;
 /// The accent's own fill, under white text: the shell's buttons and marks.
 pub const ACCENT_FILL: u8 = 15;
+/// A window's content pane (the list, the details beside it): deeper than
+/// the `surface` of its toolbars and sidebar, so the content reads as one
+/// field framed by the chrome.
+pub const CONTENT: u8 = 16;
 const OPAQUE: u32 = 0xff00_0000;
 const DARK: [u32; TOKEN_COUNT as usize] = [
     0xffe9edf6,
@@ -107,6 +111,7 @@ const DARK: [u32; TOKEN_COUNT as usize] = [
     0xff3e4760,
     0xff4b5266,
     OPAQUE | appearance::ACCENTS[0].fill,
+    0xff2a3244,
 ];
 const LIGHT: [u32; TOKEN_COUNT as usize] = [
     OPAQUE | appearance::LIGHT.text,
@@ -124,10 +129,11 @@ const LIGHT: [u32; TOKEN_COUNT as usize] = [
     0xffffffff,
     0xffe2d6ca,
     OPAQUE | appearance::ACCENTS[3].fill,
+    0xfff3eee7,
 ];
 const CONTRAST: [u32; TOKEN_COUNT as usize] = [
     0xffffffff, 0xffcccccc, 0xff101010, 0xff000000, 0xffffffff, 0xff555555, 0xff274e91, 0xffffff00,
-    0xff80dfff, 0xffff8080, 0xffffe080, 0xff000000, 0xff202020, 0xff999999, 0xff274e91,
+    0xff80dfff, 0xffff8080, 0xffffe080, 0xff000000, 0xff202020, 0xff999999, 0xff274e91, 0xff000000,
 ];
 
 #[cfg(feature = "compiler")]
@@ -149,6 +155,7 @@ pub(crate) fn token(value: &str) -> Option<u8> {
         "input-focus",
         "grid",
         "accent-fill",
+        "content",
     ]
     .iter()
     .position(|candidate| *candidate == name)

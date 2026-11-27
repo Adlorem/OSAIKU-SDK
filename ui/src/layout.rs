@@ -11,11 +11,16 @@ impl Rect {
     pub fn intersect(self, other: Self) -> Self {
         let x = self.x.max(other.x);
         let y = self.y.max(other.y);
+        let right = self.right().min(other.right());
+        let bottom = self.bottom().min(other.bottom());
+        if right <= x || bottom <= y {
+            return Self::default();
+        }
         Self {
             x,
             y,
-            width: (self.right().min(other.right()) - x).max(0) as u32,
-            height: (self.bottom().min(other.bottom()) - y).max(0) as u32,
+            width: right.abs_diff(x),
+            height: bottom.abs_diff(y),
         }
     }
     pub fn right(self) -> i32 {

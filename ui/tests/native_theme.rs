@@ -189,3 +189,23 @@ fn a_transported_theme_id_carries_the_accent() {
     assert_eq!(Theme::decode(5 << 8), None, "no fifth accent");
     assert_eq!(Theme::decode(1 << 16), None);
 }
+
+#[test]
+fn the_content_pane_is_deeper_than_the_window_surface() {
+    let doc = compile(
+        r#"<main id="r"><section id="pane"><p id="t">Lista</p></section></main>"#,
+        "#pane { background-color: theme(content); }",
+    )
+    .unwrap();
+    assert_eq!(doc.nodes[1].style.background_token, theme::CONTENT);
+    let luma = |c: u32| (c >> 16 & 0xff) * 3 + (c >> 8 & 0xff) * 6 + (c & 0xff);
+    for t in [Theme::Dark, Theme::Light] {
+        let (pane, surface) = (t.color(theme::CONTENT, 0), t.color(theme::SURFACE, 0));
+        assert!(luma(pane) < luma(surface), "{t:?}");
+        // Text stays readable on it.
+        assert!(
+            luma(t.color(theme::TEXT, 0)).abs_diff(luma(pane)) > 1200,
+            "{t:?}"
+        );
+    }
+}

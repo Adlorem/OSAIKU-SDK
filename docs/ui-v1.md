@@ -58,7 +58,9 @@ unavailable samples to break the line; spacing is proportional to elapsed time.
 The shared chart paints a 0–100% scale and seconds relative to its latest sample
 (`0 s`). Oldest and, when space permits, midpoint labels show negative offsets
 with exact millisecond fractions, without assuming a 60-second window. Narrow
-charts omit labels that would overlap. Empty series have no time labels; one
+charts omit labels that would overlap; short ones keep every grid line but
+label only 100%, 50% and 0% (or the ends alone) once 12-pixel labels would
+touch. Empty series have no time labels; one
 sample has only `0 s`, even if its value is unavailable. Lines and point markers
 are clipped to the plot; labels respect the chart and scroll viewport clips.
 Two series together fit 120 points. `Bindings` resolves locally; callbacks
@@ -291,7 +293,7 @@ glyph lands on the nearest whole pixel, so spacing does not drift along a line.
 band raster, compositor canvas and recipe planners, kernel recipe planner) draws
 from this run, so alignment and pixels agree. Kerning is not applied. A
 character outside the atlas (Basic Latin, Polish letters, middle dot, en dash,
-ellipsis, ×, ←, →, ↻, ✓ and ▼) is drawn as `?`. The fixed-cell DejaVu Sans Mono atlas
+ellipsis, ×, ←, →, ↑, ↓, ↻, ✓, ▼, ■, ° and ›) is drawn as `?`. The fixed-cell DejaVu Sans Mono atlas
 (`font::ui_font_glyph`) remains only for the native cell-grid presentation
 path and its pinned hash.
 
@@ -624,7 +626,11 @@ The 96-rule/16KiB source limit applies to application CSS; SDK defaults are
 separate. Rules never leak from one view into another.
 
 Palette names: `text`, `muted`, `surface`, `card`, `line`, `track`, `selected`,
-`accent`, `secondary`, `danger`, `warning`, `input`, `input-focus`, `grid`.
+`accent`, `secondary`, `danger`, `warning`, `input`, `input-focus`, `grid`,
+`accent-fill`, `content`. `content` is a window's content pane, the list and
+the details beside it, set deeper than the `surface` of its toolbars and
+sidebar (Files uses it). A document naming it needs a system with this
+palette: an older one refuses the unknown token.
 `Theme::Dark` preserves the current System Manager palette. `Theme::Contrast`
 is the system contrast profile. Tokens are resolved once per painted node,
 not per pixel. There is no runtime CSS parser, global mutable stylesheet or
